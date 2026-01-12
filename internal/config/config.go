@@ -18,7 +18,7 @@ type Config struct {
 
 func Default() Config {
 	return Config{
-		SwagDir:       "./swag",
+		SwagDir:       "~/apps-docker/swag",
 		SwagContainer: "swag",
 		Network:       "swag",
 	}
