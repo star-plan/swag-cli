@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 )
@@ -38,7 +39,7 @@ func NewClient() (*Client, error) {
 // networkName: 目标网络名称，通常是 "swag" 或用户自定义的名称
 func (c *Client) ListContainersByNetwork(ctx context.Context, networkName string) ([]ContainerInfo, error) {
 	// 获取所有容器
-	containers, err := c.cli.ContainerList(ctx, types.ContainerListOptions{})
+	containers, err := c.cli.ContainerList(ctx, container.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
