@@ -1,57 +1,45 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Docker镜像构建、推送和远程部署脚本
+Go项目构建与远程部署脚本
 
 功能：
 1. 获取最新git tag作为版本号
-2. 读取 .env 文件并将其变量作为 --build-arg 注入 Docker 构建
-3. 构建Docker镜像并推送到配置的镜像仓库
-4. SSH连接到远程服务器进行自动部署
+2. 编译Go项目为指定平台的可执行文件
+3. 如果启用部署，将可执行文件推送到服务器并安装到指定目录
 
 配置项(环境变量或默认值)：
-- PLATFORMS: 构建目标平台，默认: linux/amd64
-- DOCKERFILE: Dockerfile路径，默认: ./Dockerfile
-- IMAGE_NAME: 镜像名称
-- REGISTRIES: 镜像仓库配置列表，每个元素包含:
-  - TYPE: 仓库类型，dockerhub或private
-  - NAMESPACE: 镜像仓库命名空间
-  - IMAGE_NAME: 镜像名称
-- REMOTE_HOST: 远程服务器配置，如: user@server-ip -p 2022
-- REMOTE_PROJECT_PATH: 远程项目路径
-- ENV_FILE: .env 文件路径，默认: ./.env
+- TARGET_OS: 目标操作系统，默认: linux
+- TARGET_ARCH: 目标架构，默认: amd64
+- EXECUTABLE_NAME: 可执行文件名称，默认: swag-cli
+- REMOTE_HOST: 远程服务器配置，如: user@server-ip 或 ssh config host别名
+- REMOTE_TEMP_PATH: 远程临时目录，默认: /tmp
+- REMOTE_INSTALL_PATH: 远程安装目录，默认: /usr/local/bin
+- ENABLED_DEPLOY: 是否启用部署，默认: True
 """
 
 import os
 import sys
 import subprocess
 import threading
-from typing import Optional, Tuple
+import shutil
+from typing import Optional, Tuple, Dict
 
 # 默认配置
 DEFAULTS = {
-    "PLATFORMS": "linux/amd64",
-    "DOCKERFILE": "./Dockerfile",
-    'IMAGE_NAME': 'avatar-sense',
-    'REGISTRIES': [
-        {
-            'TYPE': 'private',
-            'URL': 'registry.cn-hangzhou.aliyuncs.com',
-            'NAMESPACE': 'dou3',
-            'IMAGE_NAME': 'avatar-sense',
-        },
-    ],
-    'REMOTE_HOST': 'deali.cn',  # 远程服务器地址或~/.ssh/config中的Host别名
-    'REMOTE_PROJECT_PATH': '/home/ubuntu/projects/avatar-sense',
+    "TARGET_OS": "linux",
+    "TARGET_ARCH": "amd64",
+    "EXECUTABLE_NAME": "swag-cli",
+    'REMOTE_HOST': 'deali.cn',
+    'REMOTE_TEMP_PATH': '/tmp',
+    'REMOTE_INSTALL_PATH': '/usr/local/bin',
     "ENABLED_DEPLOY": True,
-    'ENV_FILE': './.env',
 }
 
 
 class ProgressDisplay:
     """
     管理一个持久的状态行，同时允许其他输出滚动显示。
-    类似于tqdm的效果，但使用纯标准库实现。
     """
 
     def __init__(self):
@@ -69,9 +57,9 @@ class ProgressDisplay:
     def print_output(self, line: str):
         """在状态行下方打印一行输出"""
         with self.lock:
-            # 使用\r和\033[K清空当前行（即状态行）
+            # 清空当前行（即状态行）
             sys.stdout.write('\r\033[K')
-            # 打印实际的命令输出行 (line from readline() includes \n)
+            # 打印实际的命令输出行
             sys.stdout.write(line)
             # 重新绘制状态行
             sys.stdout.write(self.status_line)
@@ -90,46 +78,13 @@ class ProgressDisplay:
 
 def get_config(key: str) -> str | object:
     """获取配置值，优先使用环境变量，否则使用默认值"""
-    return os.environ.get(key, DEFAULTS.get(key, ''))
-
-
-def load_env_file(env_path: str) -> dict[str, str]:
-    """从 .env 文件加载键值对，忽略注释、空行与可选的 export 前缀"""
-    if not env_path:
-        return {}
-    if not os.path.exists(env_path):
-        print(f"ℹ️ 未找到 {env_path}，将不注入 build args。")
-        return {}
-
-    env_vars: dict[str, str] = {}
-    with open(env_path, 'r', encoding='utf-8') as f:
-        for raw in f:
-            line = raw.strip()
-            if not line or line.startswith('#'):
-                continue
-            if line.startswith('export '):
-                line = line[7:].strip()
-            if '=' not in line:
-                continue
-            key, value = line.split('=', 1)
-            key = key.strip()
-            value = value.strip()
-            # 去除包裹引号
-            if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
-                value = value[1:-1]
-            env_vars[key] = value
-    return env_vars
-
-
-def build_args_from_env(env_vars: dict[str, str]) -> str:
-    """将环境变量转换为 Docker build --build-arg 参数字符串"""
-    if not env_vars:
-        return ""
-    parts = []
-    for k, v in env_vars.items():
-        safe_v = v.replace('"', '\\"')
-        parts.append(f'--build-arg {k}="{safe_v}"')
-    return ' '.join(parts)
+    val = os.environ.get(key)
+    if val is not None:
+        # 如果是布尔值配置，尝试转换
+        if key == "ENABLED_DEPLOY":
+            return val.lower() in ('true', '1', 'yes', 'on')
+        return val
+    return DEFAULTS.get(key, '')
 
 
 def _reader_thread(pipe, lines_list, progress_display: Optional[ProgressDisplay]):
@@ -139,9 +94,8 @@ def _reader_thread(pipe, lines_list, progress_display: Optional[ProgressDisplay]
             lines_list.append(line)
             if progress_display:
                 progress_display.print_output(line)
-    except UnicodeDecodeError as e:
-        # 处理编码错误，使用错误替换策略继续读取
-        error_msg = f"编码错误: {e}，尝试使用错误替换策略继续\n"
+    except Exception as e:
+        error_msg = f"读取输出错误: {e}\n"
         lines_list.append(error_msg)
         if progress_display:
             progress_display.print_output(error_msg)
@@ -149,12 +103,22 @@ def _reader_thread(pipe, lines_list, progress_display: Optional[ProgressDisplay]
         pipe.close()
 
 
-def run_cmd(cmd: str, progress_display: Optional[ProgressDisplay] = None) -> Tuple[int, str, str]:
+def run_cmd(cmd: str, progress_display: Optional[ProgressDisplay] = None, env: Optional[Dict[str, str]] = None, check: bool = True) -> Tuple[int, str, str]:
     """
     执行命令并实时显示输出，同时捕获输出内容。
     返回状态码、stdout和stderr。
+    check: 如果为True，当命令返回非0状态码时退出脚本
     """
-    print(f"执行命令: {cmd}")
+    # 如果没有传入 env，使用当前进程的环境变量
+    if env is None:
+        run_env = os.environ.copy()
+    else:
+        run_env = env
+
+    if progress_display:
+        progress_display.print_output(f"执行命令: {cmd}\n")
+    else:
+        print(f"执行命令: {cmd}")
 
     process = subprocess.Popen(
         cmd,
@@ -165,7 +129,8 @@ def run_cmd(cmd: str, progress_display: Optional[ProgressDisplay] = None) -> Tup
         bufsize=1,
         universal_newlines=True,
         encoding='utf-8',
-        errors='replace'  # 遇到无法解码的字符时用替换字符代替
+        errors='replace',
+        env=run_env
     )
 
     stdout_lines = []
@@ -191,7 +156,7 @@ def run_cmd(cmd: str, progress_display: Optional[ProgressDisplay] = None) -> Tup
     stdout = ''.join(stdout_lines)
     stderr = ''.join(stderr_lines)
 
-    if returncode != 0:
+    if returncode != 0 and check:
         if progress_display:
             progress_display.print_output(f"\n❌ 命令执行失败 (返回码: {returncode})\n")
         else:
@@ -204,82 +169,102 @@ def run_cmd(cmd: str, progress_display: Optional[ProgressDisplay] = None) -> Tup
 
 def get_latest_tag() -> str:
     """获取最新git tag"""
-    _, tag, _ = run_cmd("git describe --tags --abbrev=0")
-    tag = tag.strip()
-    return tag
+    try:
+        returncode, tag, _ = run_cmd("git describe --tags --abbrev=0", check=False)
+        if returncode != 0:
+            return "dev"
+        tag = tag.strip()
+        return tag if tag else "dev"
+    except Exception:
+        # 如果获取失败，返回 dev
+        return "dev"
 
 
-def deploy_to_remote(version: str, progress: ProgressDisplay) -> None:
+def build_project(version: str, progress: ProgressDisplay) -> str:
+    """编译Go项目"""
+    os_name = str(get_config('TARGET_OS'))
+    arch = str(get_config('TARGET_ARCH'))
+    exe_name = str(get_config('EXECUTABLE_NAME'))
+    
+    # 创建 build 目录
+    if not os.path.exists('build'):
+        os.makedirs('build')
+        
+    output_path = os.path.join("build", exe_name)
+    # 如果是 Windows 目标，加上 .exe 后缀
+    if os_name == "windows" and not output_path.endswith(".exe"):
+        output_path += ".exe"
+
+    # 准备编译环境
+    env = os.environ.copy()
+    env['GOOS'] = os_name
+    env['GOARCH'] = arch
+    env['CGO_ENABLED'] = '0' # 静态编译
+    
+    # 编译命令
+    # 假设 main 入口在 ./cmd/swag-cli
+    # 可以通过 -ldflags 注入版本信息，这里简单演示注入 version 变量（如果代码中有的话）
+    # cmd = f"go build -ldflags \"-s -w\" -o {output_path} ./cmd/swag-cli"
+    cmd = f"go build -o {output_path} ./cmd/swag-cli"
+    
+    progress.set_status(f"� 正在编译 ({os_name}/{arch}) -> {output_path}...")
+    run_cmd(cmd, progress, env=env)
+    
+    # 检查文件是否生成
+    if not os.path.exists(output_path):
+        progress.finish_step("❌ 编译失败: 未找到输出文件")
+        sys.exit(1)
+        
+    return output_path
+
+
+def deploy_to_remote(local_path: str, progress: ProgressDisplay) -> None:
     """部署到远程服务器"""
-    host = get_config('REMOTE_HOST')
-    remote_path = get_config('REMOTE_PROJECT_PATH')
-
-    # 1. 更新远程 .env 文件
-    update_cmd = f'ssh {host} "sed -i \'s/^APP_IMAGE_TAG=.*/APP_IMAGE_TAG={version}/\' {remote_path}/.env"'
-    run_cmd(update_cmd, progress)
-
-    # 2. 重启远程容器
-    restart_cmd = f'ssh {host} "cd {remote_path} && docker compose up -d"'
-    run_cmd(restart_cmd, progress)
+    host = str(get_config('REMOTE_HOST'))
+    remote_temp = str(get_config('REMOTE_TEMP_PATH'))
+    remote_install = str(get_config('REMOTE_INSTALL_PATH'))
+    
+    filename = os.path.basename(local_path)
+    remote_temp_file = f"{remote_temp}/{filename}"
+    remote_target_file = f"{remote_install}/{filename}"
+    
+    # 1. SCP 上传到临时目录
+    progress.set_status(f"📤 正在上传文件到 {host}:{remote_temp_file}...")
+    scp_cmd = f"scp {local_path} {host}:{remote_temp_file}"
+    run_cmd(scp_cmd, progress)
+    
+    # 2. 移动到安装目录并赋予权限
+    progress.set_status(f"🔧 正在安装到 {remote_target_file}...")
+    # 使用 sudo 移动文件并设置权限
+    install_cmd = (
+        f'ssh {host} "sudo mv {remote_temp_file} {remote_target_file} && '
+        f'sudo chmod +x {remote_target_file} && '
+        f'ls -l {remote_target_file}"'
+    )
+    run_cmd(install_cmd, progress)
 
 
 def main():
     progress = ProgressDisplay()
-    print("🚀 开始Docker镜像构建、推送和部署流程\n")
+    print("🚀 开始构建和部署流程\n")
 
     # 1. 获取最新tag
     progress.set_status("🔍 获取最新tag...")
     version = get_latest_tag()
-    if not version:
-        progress.finish_step("❌ 错误: 没有找到git tag")
-        sys.exit(1)
     progress.finish_step(f"✅ 最新tag: {version}")
 
-    # 2. 构建镜像
-    progress.set_status("📦 构建Docker镜像...")
-    image_name = get_config('IMAGE_NAME')
-    env_file = get_config('ENV_FILE')
-    env_vars = load_env_file(str(env_file))
-    build_args = build_args_from_env(env_vars)
-    progress.set_status(f"📦 构建Docker镜像...（注入 {len(env_vars)} 个 build-args）")
-    run_cmd(
-        f"docker buildx build "
-        f"--platform {get_config('PLATFORMS')} "
-        f"--file {get_config('DOCKERFILE')} "
-        f"{build_args} "
-        f"--tag {image_name}:latest "
-        f".",
-        progress
-    )
-    progress.finish_step("✅ Docker镜像构建完成")
+    # 2. 编译
+    progress.set_status("� 准备编译...")
+    output_path = build_project(version, progress)
+    progress.finish_step(f"✅ 编译完成: {output_path}")
 
-    # 3. 打tag & 推送
-    for registry in get_config('REGISTRIES'):
-        if not registry:
-            continue
-        registry_type = registry.get('TYPE', '')
-        registry_url = registry.get('URL', '')
-        registry_namespace = registry.get('NAMESPACE', '')
-        registry_image_name = registry.get('IMAGE_NAME', '')
-        if registry_type == 'dockerhub':
-            registry_image = f"{registry_namespace}/{registry_image_name}:{version}"
-        else:
-            registry_image = f"{registry_url}/{registry_namespace}/{registry_image_name}:{version}"
-
-        progress.set_status(f"🏷️  给镜像打tag: {image_name} -> {registry_image}...")
-        run_cmd(f"docker tag {image_name} {registry_image}", progress)
-        progress.finish_step(f"✅ 镜像tag完成: {registry_image}")
-
-        # 4. 推送镜像
-        progress.set_status(f"📤 推送镜像到 {registry_image}...")
-        run_cmd(f"docker push {registry_image}", progress)
-        progress.finish_step(f"✅ 镜像已推送: {registry_image}")
-
-    # 5. 远程部署
-    if DEFAULTS['ENABLED_DEPLOY']:
+    # 3. 部署
+    if get_config('ENABLED_DEPLOY'):
         progress.set_status("🛰️  开始远程部署...")
-        deploy_to_remote(version, progress)
+        deploy_to_remote(output_path, progress)
         progress.finish_step("✅ 远程部署完成")
+    else:
+        print("\n⚠️  部署已禁用 (ENABLED_DEPLOY=False)，仅执行了编译。")
 
     print("\n🎉 所有任务已完成！")
 
