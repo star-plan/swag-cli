@@ -22,7 +22,6 @@ import os
 import sys
 import subprocess
 import threading
-import shutil
 from typing import Optional, Tuple, Dict
 
 # 默认配置
@@ -202,12 +201,14 @@ def build_project(version: str, progress: ProgressDisplay) -> str:
     env['CGO_ENABLED'] = '0' # 静态编译
     
     # 编译命令
-    # 假设 main 入口在 ./cmd/swag-cli
-    # 可以通过 -ldflags 注入版本信息，这里简单演示注入 version 变量（如果代码中有的话）
-    # cmd = f"go build -ldflags \"-s -w\" -o {output_path} ./cmd/swag-cli"
-    cmd = f"go build -o {output_path} ./cmd/swag-cli"
+    cmd = (
+        f'go build '
+        f'-ldflags "-s -w -X swag-cli/internal/cli.Version={version}" '
+        f'-o {output_path} '
+        f'./cmd/swag-cli'
+    )
     
-    progress.set_status(f"� 正在编译 ({os_name}/{arch}) -> {output_path}...")
+    progress.set_status(f"正在编译 ({os_name}/{arch}) -> {output_path}...")
     run_cmd(cmd, progress, env=env)
     
     # 检查文件是否生成
@@ -254,7 +255,7 @@ def main():
     progress.finish_step(f"✅ 最新tag: {version}")
 
     # 2. 编译
-    progress.set_status("� 准备编译...")
+    progress.set_status("准备编译...")
     output_path = build_project(version, progress)
     progress.finish_step(f"✅ 编译完成: {output_path}")
 

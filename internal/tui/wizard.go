@@ -12,7 +12,12 @@ import (
 )
 
 // Run 启动交互式向导
-func Run(confDir string, swagContainerName string, network string) {
+func Run(confDir string, swagContainerName string, network string, version string) {
+	if version == "" {
+		version = "dev"
+	}
+	color.Cyan("swag-cli version: %s", version)
+	fmt.Println()
 	for {
 		action := ""
 		prompt := &survey.Select{

@@ -9,17 +9,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var Version = "dev"
+
 var rootCmd = &cobra.Command{
 	Use:   "swag-cli",
 	Short: "SWAG (Nginx) 配置自动化助手",
 	Long: `一个用于管理 SWAG (LinuxServer.io Nginx) 容器反向代理配置的 CLI 工具。
 旨在简化容器发现、配置生成和站点管理流程。`,
+	Version: Version,
 	Run: func(cmd *cobra.Command, args []string) {
 		// 如果没有参数，默认进入交互模式 (TUI)
 		confDir, _ := cmd.Flags().GetString("conf-dir")
 		swagContainer, _ := cmd.Flags().GetString("swag-container")
 		network, _ := cmd.Flags().GetString("network")
-		tui.Run(confDir, swagContainer, network)
+		tui.Run(confDir, swagContainer, network, cmd.Version)
 	},
 }
 
@@ -37,6 +40,10 @@ func init() {
 	if err != nil {
 		cfg = config.Default()
 	}
+
+	rootCmd.Version = Version
+	rootCmd.SetVersionTemplate("{{.Version}}\n")
+	rootCmd.SetHelpTemplate(fmt.Sprintf("Version: {{.Version}}\n\n%s", rootCmd.HelpTemplate()))
 
 	// 这里可以定义全局 flag
 	rootCmd.PersistentFlags().StringP("conf-dir", "d", cfg.ConfDir, "SWAG proxy-confs 目录路径")
