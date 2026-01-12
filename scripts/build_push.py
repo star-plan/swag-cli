@@ -16,6 +16,17 @@ Go项目构建与远程部署脚本
 - REMOTE_TEMP_PATH: 远程临时目录，默认: /tmp
 - REMOTE_INSTALL_PATH: 远程安装目录，默认: /usr/local/bin
 - ENABLED_DEPLOY: 是否启用部署，默认: True
+- USE_SSH_TTY: SSH是否分配伪终端(用于sudo需要密码的情况)，默认: True
+- SUDO_NOPASSWD: 服务器sudo是否配置了NOPASSWD，默认: False
+
+注意事项:
+1. 如果服务器sudo需要密码:
+   - 方案A(推荐): 配置sudo NOPASSWD，设置 SUDO_NOPASSWD=True
+     在服务器上运行: sudo visudo
+     添加: your_user ALL=(ALL) NOPASSWD: /bin/mv, /bin/chmod
+   - 方案B: 使用SSH TTY，设置 USE_SSH_TTY=True (默认)
+     这会在SSH命令中添加 -t 参数，允许交互式输入密码
+2. 如果服务器sudo已配置NOPASSWD，设置 SUDO_NOPASSWD=True 可以避免TTY相关问题
 """
 
 import os
@@ -29,10 +40,12 @@ DEFAULTS = {
     "TARGET_OS": "linux",
     "TARGET_ARCH": "amd64",
     "EXECUTABLE_NAME": "swag-cli",
-    'REMOTE_HOST': 'deali.cn',
+    'REMOTE_HOST': 'andar',
     'REMOTE_TEMP_PATH': '/tmp',
     'REMOTE_INSTALL_PATH': '/usr/local/bin',
     "ENABLED_DEPLOY": True,
+    "USE_SSH_TTY": True,  # 使用SSH TTY以支持sudo密码输入
+    "SUDO_NOPASSWD": False,  # 服务器sudo是否配置了NOPASSWD
 }
 
 
@@ -80,7 +93,7 @@ def get_config(key: str) -> str | object:
     val = os.environ.get(key)
     if val is not None:
         # 如果是布尔值配置，尝试转换
-        if key == "ENABLED_DEPLOY":
+        if key in ("ENABLED_DEPLOY", "USE_SSH_TTY", "SUDO_NOPASSWD"):
             return val.lower() in ('true', '1', 'yes', 'on')
         return val
     return DEFAULTS.get(key, '')
@@ -224,6 +237,8 @@ def deploy_to_remote(local_path: str, progress: ProgressDisplay) -> None:
     host = str(get_config('REMOTE_HOST'))
     remote_temp = str(get_config('REMOTE_TEMP_PATH'))
     remote_install = str(get_config('REMOTE_INSTALL_PATH'))
+    use_ssh_tty = bool(get_config('USE_SSH_TTY'))
+    sudo_nopasswd = bool(get_config('SUDO_NOPASSWD'))
     
     filename = os.path.basename(local_path)
     remote_temp_file = f"{remote_temp}/{filename}"
@@ -236,9 +251,17 @@ def deploy_to_remote(local_path: str, progress: ProgressDisplay) -> None:
     
     # 2. 移动到安装目录并赋予权限
     progress.set_status(f"🔧 正在安装到 {remote_target_file}...")
+    
+    # 根据配置决定是否使用 -t 参数
+    # 如果sudo已配置NOPASSWD，不需要TTY
+    # 如果sudo需要密码且用户启用了USE_SSH_TTY，则使用 -t
+    ssh_flags = ""
+    if not sudo_nopasswd and use_ssh_tty:
+        ssh_flags = "-t"
+    
     # 使用 sudo 移动文件并设置权限
     install_cmd = (
-        f'ssh {host} "sudo mv {remote_temp_file} {remote_target_file} && '
+        f'ssh {ssh_flags} {host} "sudo mv {remote_temp_file} {remote_target_file} && '
         f'sudo chmod +x {remote_target_file} && '
         f'ls -l {remote_target_file}"'
     )
