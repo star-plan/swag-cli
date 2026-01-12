@@ -11,17 +11,37 @@ import (
 )
 
 type Config struct {
-	ConfDir       string `json:"confDir"`
-	SwagContainer string `json:"swagContainer"`
-	Network       string `json:"network"`
+	SwagDir       string `json:"swagDir"`       // Base SWAG directory path
+	SwagContainer string `json:"swagContainer"` // SWAG container name
+	Network       string `json:"network"`       // Docker network name
 }
 
 func Default() Config {
 	return Config{
-		ConfDir:       "./proxy-confs",
+		SwagDir:       "./swag",
 		SwagContainer: "swag",
 		Network:       "swag",
 	}
+}
+
+// ProxyConfsDir returns the path to nginx proxy-confs directory
+func (c Config) ProxyConfsDir() string {
+	return filepath.Join(c.SwagDir, "config", "nginx", "proxy-confs")
+}
+
+// NginxConfigDir returns the path to nginx config directory
+func (c Config) NginxConfigDir() string {
+	return filepath.Join(c.SwagDir, "config", "nginx")
+}
+
+// LogDir returns the path to nginx log directory
+func (c Config) LogDir() string {
+	return filepath.Join(c.SwagDir, "config", "log", "nginx")
+}
+
+// SSLCertDir returns the path to SSL certificates directory
+func (c Config) SSLCertDir() string {
+	return filepath.Join(c.SwagDir, "config", "etc", "letsencrypt")
 }
 
 func Path() (string, error) {
@@ -93,7 +113,7 @@ func Save(cfg Config) error {
 
 func Keys() []string {
 	keys := []string{
-		"conf-dir",
+		"swag-dir",
 		"swag-container",
 		"network",
 	}
@@ -103,8 +123,8 @@ func Keys() []string {
 
 func Get(cfg Config, key string) (string, bool) {
 	switch normalizeKey(key) {
-	case "conf-dir":
-		return cfg.ConfDir, true
+	case "swag-dir":
+		return cfg.SwagDir, true
 	case "swag-container":
 		return cfg.SwagContainer, true
 	case "network":
@@ -120,8 +140,8 @@ func Set(cfg *Config, key, value string) error {
 	}
 
 	switch normalizeKey(key) {
-	case "conf-dir":
-		cfg.ConfDir = strings.TrimSpace(value)
+	case "swag-dir":
+		cfg.SwagDir = strings.TrimSpace(value)
 		return nil
 	case "swag-container":
 		cfg.SwagContainer = strings.TrimSpace(value)
@@ -139,12 +159,12 @@ func normalizeKey(key string) string {
 }
 
 func normalize(cfg Config) Config {
-	cfg.ConfDir = strings.TrimSpace(cfg.ConfDir)
+	cfg.SwagDir = strings.TrimSpace(cfg.SwagDir)
 	cfg.SwagContainer = strings.TrimSpace(cfg.SwagContainer)
 	cfg.Network = strings.TrimSpace(cfg.Network)
 
-	if cfg.ConfDir == "" {
-		cfg.ConfDir = Default().ConfDir
+	if cfg.SwagDir == "" {
+		cfg.SwagDir = Default().SwagDir
 	}
 	if cfg.SwagContainer == "" {
 		cfg.SwagContainer = Default().SwagContainer

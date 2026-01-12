@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"os"
+	"swag-cli/internal/config"
 	"swag-cli/internal/docker"
 	"swag-cli/internal/nginx"
 
@@ -16,9 +17,10 @@ var toggleCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		subdomain := args[0]
-		confDir, _ := cmd.Flags().GetString("conf-dir")
+		swagDir, _ := cmd.Flags().GetString("swag-dir")
 
-		manager := nginx.NewManager(confDir)
+		cfg := config.Config{SwagDir: swagDir}
+		manager := nginx.NewManager(cfg.ProxyConfsDir())
 		status, err := manager.ToggleSite(subdomain)
 		if err != nil {
 			color.Red("操作失败: %v", err)

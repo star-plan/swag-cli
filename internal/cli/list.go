@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"swag-cli/internal/config"
 	"swag-cli/internal/docker"
 	"swag-cli/internal/nginx"
 
@@ -17,11 +18,12 @@ var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "列出已配置的站点及其对应的容器状态",
 	Run: func(cmd *cobra.Command, args []string) {
-		confDir, _ := cmd.Flags().GetString("conf-dir")
+		swagDir, _ := cmd.Flags().GetString("swag-dir")
 		network, _ := cmd.Flags().GetString("network")
 
 		// 1. 获取 Nginx 站点配置
-		manager := nginx.NewManager(confDir)
+		cfg := config.Config{SwagDir: swagDir}
+		manager := nginx.NewManager(cfg.ProxyConfsDir())
 		sites, err := manager.ListSites()
 		if err != nil {
 			color.Red("读取配置文件失败: %v", err)
@@ -29,7 +31,7 @@ var listCmd = &cobra.Command{
 		}
 
 		if len(sites) == 0 {
-			color.Yellow("未找到任何站点配置 (在 %s)", confDir)
+			color.Yellow("未找到任何站点配置 (在 %s)", cfg.ProxyConfsDir())
 			return
 		}
 

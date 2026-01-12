@@ -19,10 +19,10 @@ var rootCmd = &cobra.Command{
 	Version: Version,
 	Run: func(cmd *cobra.Command, args []string) {
 		// 如果没有参数，默认进入交互模式 (TUI)
-		confDir, _ := cmd.Flags().GetString("conf-dir")
+		swagDir, _ := cmd.Flags().GetString("swag-dir")
 		swagContainer, _ := cmd.Flags().GetString("swag-container")
 		network, _ := cmd.Flags().GetString("network")
-		tui.Run(confDir, swagContainer, network, cmd.Version)
+		tui.Run(swagDir, swagContainer, network, cmd.Version)
 	},
 }
 
@@ -46,7 +46,7 @@ func init() {
 	rootCmd.SetHelpTemplate(fmt.Sprintf("Version: {{.Version}}\n\n%s", rootCmd.HelpTemplate()))
 
 	// 这里可以定义全局 flag
-	rootCmd.PersistentFlags().StringP("conf-dir", "d", cfg.ConfDir, "SWAG proxy-confs 目录路径")
+	rootCmd.PersistentFlags().StringP("swag-dir", "d", cfg.SwagDir, "SWAG 基础目录路径")
 	rootCmd.PersistentFlags().String("swag-container", cfg.SwagContainer, "SWAG 容器名称 (用于 reload)")
 	rootCmd.PersistentFlags().StringP("network", "n", cfg.Network, "Docker 网络名称 (用于容器发现)")
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"swag-cli/internal/config"
 	"swag-cli/internal/docker"
 	"swag-cli/internal/nginx"
 
@@ -12,7 +13,7 @@ import (
 )
 
 // Run 启动交互式向导
-func Run(confDir string, swagContainerName string, network string, version string) {
+func Run(swagDir string, swagContainerName string, network string, version string) {
 	if version == "" {
 		version = "dev"
 	}
@@ -28,7 +29,7 @@ func Run(confDir string, swagContainerName string, network string, version strin
 
 		switch action {
 		case "添加新站点 (Add)":
-			runAddFlow(confDir, swagContainerName, network)
+			runAddFlow(swagDir, swagContainerName, network)
 		case "查看站点列表 (List)":
 			// TODO: 调用 list 逻辑
 			color.Yellow("列表功能在交互模式下暂未完全集成，请使用 'swag-cli list' 命令")
@@ -39,7 +40,7 @@ func Run(confDir string, swagContainerName string, network string, version strin
 	}
 }
 
-func runAddFlow(confDir string, swagContainerName string, network string) {
+func runAddFlow(swagDir string, swagContainerName string, network string) {
 	// 1. 获取容器列表
 	cli, err := docker.NewClient()
 	if err != nil {
@@ -122,7 +123,8 @@ func runAddFlow(confDir string, swagContainerName string, network string) {
 	}
 
 	// 4. 生成配置
-	gen := nginx.NewGenerator(confDir)
+	cfg := config.Config{SwagDir: swagDir}
+	gen := nginx.NewGenerator(cfg.ProxyConfsDir())
 	data := nginx.ConfigData{
 		Subdomain:     answers.Subdomain,
 		ContainerName: selectedContainer.Name,

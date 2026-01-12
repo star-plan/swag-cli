@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"os"
+	"swag-cli/internal/config"
 	"swag-cli/internal/docker"
 	"swag-cli/internal/nginx"
 
@@ -25,7 +26,7 @@ var addCmd = &cobra.Command{
 		subdomain, _ := cmd.Flags().GetString("subdomain")
 		port, _ := cmd.Flags().GetInt("port")
 		proto, _ := cmd.Flags().GetString("proto")
-		confDir, _ := cmd.Flags().GetString("conf-dir") // Inherited from root
+		swagDir, _ := cmd.Flags().GetString("swag-dir") // Inherited from root
 
 		// 简单的校验 (实际场景可能需要更复杂的交互逻辑如果缺少参数)
 		if containerName == "" {
@@ -47,7 +48,9 @@ var addCmd = &cobra.Command{
 		}
 
 		// 3. 生成配置
-		gen := nginx.NewGenerator(confDir)
+		// 解析 proxy-confs 目录路径
+		cfg := config.Config{SwagDir: swagDir}
+		gen := nginx.NewGenerator(cfg.ProxyConfsDir())
 		path, err := gen.GenerateConfig(data)
 		if err != nil {
 			color.Red("生成配置失败: %v", err)
