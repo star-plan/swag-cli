@@ -31,8 +31,7 @@ func Run(swagDir string, swagContainerName string, network string, version strin
 		case "添加新站点 (Add)":
 			runAddFlow(swagDir, swagContainerName, network)
 		case "查看站点列表 (List)":
-			// TODO: 调用 list 逻辑
-			color.Yellow("列表功能在交互模式下暂未完全集成，请使用 'swag-cli list' 命令")
+			runListFlow(swagDir, swagContainerName, network)
 		case "退出 (Exit)":
 			os.Exit(0)
 		}
@@ -162,7 +161,149 @@ func runAddFlow(swagDir string, swagContainerName string, network string) {
 	color.Green("配置已生成: %s", path)
 
 	// 5. Restart SWAG Container
+	restartSwagContainer(swagContainerName)
+}
+
+func runListFlow(swagDir string, swagContainerName string, network string) {
+	for {
+		cfg := config.Config{SwagDir: swagDir}
+		manager := nginx.NewManager(cfg.ProxyConfsDir())
+		sites, err := manager.ListSites()
+		if err != nil {
+			color.Red("读取配置文件失败: %v", err)
+			return
+		}
+
+		if len(sites) == 0 {
+			color.Yellow("未找到任何站点配置 (在 %s)", cfg.ProxyConfsDir())
+			return
+		}
+
+		// 获取 Docker 容器信息以显示状态
+		containerMap := make(map[string]docker.ContainerInfo)
+		cli, err := docker.NewClient()
+		dockerConnected := false
+		if err == nil {
+			dockerConnected = true
+			containers, err := cli.ListContainersByNetwork(context.Background(), network)
+			if err == nil {
+				for _, c := range containers {
+					containerMap[c.Name] = c
+				}
+			}
+		}
+
+		var options []string
+		siteMap := make(map[string]nginx.SiteConfig)
+
+		for _, site := range sites {
+			statusIcon := "🟢"
+			if site.Status == nginx.StatusDisabled {
+				statusIcon = "🔴"
+			}
+
+			containerStatus := "(未知)"
+			if dockerConnected {
+				if _, ok := containerMap[site.ContainerName]; ok {
+					containerStatus = "(在线)"
+				} else {
+					containerStatus = "(离线)"
+				}
+			}
+
+			label := fmt.Sprintf("%s %-20s -> %s:%s %s", statusIcon, site.Name, site.ContainerName, site.ContainerPort, containerStatus)
+			options = append(options, label)
+			siteMap[label] = site
+		}
+
+		options = append(options, "返回主菜单 (Back)")
+
+		selectedLabel := ""
+		prompt := &survey.Select{
+			Message:  "选择站点查看详情或操作:",
+			Options:  options,
+			PageSize: 10,
+		}
+		if err := survey.AskOne(prompt, &selectedLabel); err != nil {
+			return
+		}
+
+		if selectedLabel == "返回主菜单 (Back)" {
+			return
+		}
+
+		selectedSite := siteMap[selectedLabel]
+		runSiteActionFlow(selectedSite, manager, swagContainerName)
+	}
+}
+
+func runSiteActionFlow(site nginx.SiteConfig, manager *nginx.Manager, swagContainerName string) {
+	// 显示详情
+	fmt.Println()
+	color.Cyan("站点详情:")
+	fmt.Printf("  域名: %s\n", site.Name)
+	fmt.Printf("  状态: %s\n", site.Status)
+	fmt.Printf("  容器: %s\n", site.ContainerName)
+	fmt.Printf("  端口: %s\n", site.ContainerPort)
+	fmt.Printf("  文件: %s\n", site.Filename)
+	fmt.Println()
+
+	action := ""
+	options := []string{"返回 (Back)"}
+	if site.Status == nginx.StatusEnabled {
+		options = append(options, "禁用站点 (Disable)")
+	} else {
+		options = append(options, "启用站点 (Enable)")
+	}
+	options = append(options, "删除站点 (Delete)")
+
+	prompt := &survey.Select{
+		Message: "请选择操作:",
+		Options: options,
+	}
+	if err := survey.AskOne(prompt, &action); err != nil {
+		return
+	}
+
+	switch action {
+	case "返回 (Back)":
+		return
+	case "禁用站点 (Disable)", "启用站点 (Enable)":
+		status, err := manager.ToggleSite(site.Name)
+		if err != nil {
+			color.Red("操作失败: %v", err)
+		} else {
+			if status == nginx.StatusEnabled {
+				color.Green("站点已启用")
+			} else {
+				color.Yellow("站点已禁用")
+			}
+			restartSwagContainer(swagContainerName)
+		}
+	case "删除站点 (Delete)":
+		confirm := false
+		prompt := &survey.Confirm{
+			Message: fmt.Sprintf("确定要删除站点 '%s' 吗? (此操作将删除配置文件)", site.Name),
+		}
+		survey.AskOne(prompt, &confirm)
+		if confirm {
+			if err := manager.DeleteSite(site.Name); err != nil {
+				color.Red("删除失败: %v", err)
+			} else {
+				color.Green("站点已删除")
+				restartSwagContainer(swagContainerName)
+			}
+		}
+	}
+}
+
+func restartSwagContainer(swagContainerName string) {
 	color.Yellow("正在重启 SWAG 容器 (%s)...", swagContainerName)
+	cli, err := docker.NewClient()
+	if err != nil {
+		color.Red("Docker 连接失败，无法重启容器: %v", err)
+		return
+	}
 	if err := cli.RestartContainer(context.Background(), swagContainerName); err != nil {
 		color.Red("SWAG 容器重启失败: %v", err)
 	} else {

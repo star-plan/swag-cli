@@ -151,3 +151,29 @@ func (m *Manager) ToggleSite(subdomain string) (SiteStatus, error) {
 
 	return newStatus, nil
 }
+
+// DeleteSite 删除站点配置
+func (m *Manager) DeleteSite(subdomain string) error {
+	sites, err := m.ListSites()
+	if err != nil {
+		return err
+	}
+
+	var target *SiteConfig
+	for _, s := range sites {
+		if s.Name == subdomain {
+			target = &s
+			break
+		}
+	}
+
+	if target == nil {
+		return fmt.Errorf("site not found: %s", subdomain)
+	}
+
+	filePath := filepath.Join(m.BasePath, target.Filename)
+	if err := os.Remove(filePath); err != nil {
+		return fmt.Errorf("failed to delete file: %w", err)
+	}
+	return nil
+}
