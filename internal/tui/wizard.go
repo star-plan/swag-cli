@@ -41,7 +41,19 @@ func Run(swagDir string, swagContainerName string, network string, version strin
 }
 
 func runAddFlow(swagDir string, swagContainerName string, network string) {
-	// 1. 获取容器列表
+	// 1. 加载配置以获取 swag 容器名称
+	cfg, err := config.Load()
+	if err != nil {
+		color.Red("加载配置失败: %v", err)
+		return
+	}
+
+	// 使用配置中的 swag 容器名称，如果参数传入的为空
+	if swagContainerName == "" {
+		swagContainerName = cfg.SwagContainer
+	}
+
+	// 2. 获取容器列表
 	cli, err := docker.NewClient()
 	if err != nil {
 		color.Red("Docker 连接失败: %v", err)
@@ -54,13 +66,23 @@ func runAddFlow(swagDir string, swagContainerName string, network string) {
 		return
 	}
 
-	// 准备选项
+	// 3. 准备选项，排除 swag 容器本身
 	var options []string
 	containerMap := make(map[string]docker.ContainerInfo)
 	for _, c := range containers {
+		// 排除 swag 容器本身
+		if c.Name == swagContainerName {
+			continue
+		}
 		label := fmt.Sprintf("%s (%s)", c.Name, c.IP)
 		options = append(options, label)
 		containerMap[label] = c
+	}
+
+	// 检查是否有可用的容器
+	if len(options) == 0 {
+		color.Yellow("网络 '%s' 中没有可添加的容器（已排除 swag 容器 '%s'）", network, swagContainerName)
+		return
 	}
 
 	// 2. 选择容器
@@ -123,7 +145,6 @@ func runAddFlow(swagDir string, swagContainerName string, network string) {
 	}
 
 	// 4. 生成配置
-	cfg := config.Config{SwagDir: swagDir}
 	gen := nginx.NewGenerator(cfg.ProxyConfsDir())
 	data := nginx.ConfigData{
 		Subdomain:     answers.Subdomain,
