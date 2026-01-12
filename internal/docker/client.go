@@ -17,6 +17,8 @@ type ContainerInfo struct {
 	ID       string
 	Name     string
 	Image    string
+	State    string // e.g., running, exited
+	Status   string // e.g., Up 5 hours
 	Networks []string
 	IP       string
 }
@@ -61,6 +63,8 @@ func (c *Client) ListContainersByNetwork(ctx context.Context, networkName string
 				ID:       container.ID,
 				Name:     name,
 				Image:    container.Image,
+				State:    container.State,
+				Status:   container.Status,
 				Networks: []string{networkName},
 				IP:       settings.IPAddress,
 			}

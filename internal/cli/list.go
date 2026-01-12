@@ -53,9 +53,9 @@ var listCmd = &cobra.Command{
 		}
 
 		// 3. 显示列表
-		// 格式: Subdomain | Status | Container | IP | Port
-		fmt.Printf("%-20s | %-10s | %-20s | %-15s | %-10s\n", "Subdomain", "Status", "Container", "IP", "Port")
-		fmt.Println(strings.Repeat("-", 90))
+		// 格式: Subdomain | Status | Container | State | IP | Port
+		fmt.Printf("%-20s | %-10s | %-20s | %-10s | %-15s | %-10s\n", "Subdomain", "Status", "Container", "State", "IP", "Port")
+		fmt.Println(strings.Repeat("-", 100))
 
 		for _, site := range sites {
 			statusColor := color.New(color.FgGreen).SprintFunc()
@@ -65,10 +65,17 @@ var listCmd = &cobra.Command{
 
 			containerName := site.ContainerName
 			containerIP := "N/A"
+			containerState := "N/A"
 
 			// 尝试关联容器信息
 			if info, ok := containerMap[containerName]; ok {
 				containerIP = info.IP
+				containerState = info.State
+				if info.State == "running" {
+					containerState = color.GreenString(info.State)
+				} else {
+					containerState = color.RedString(info.State)
+				}
 				containerName = color.GreenString(containerName) // 在线
 			} else if containerName != "" {
 				containerName = color.RedString(containerName) // 离线或未找到
@@ -76,10 +83,11 @@ var listCmd = &cobra.Command{
 				containerName = "Unknown"
 			}
 
-			fmt.Printf("%-20s | %-10s | %-29s | %-15s | %-10s\n",
+			fmt.Printf("%-20s | %-10s | %-29s | %-20s | %-15s | %-10s\n",
 				site.Name,
 				statusColor(site.Status),
 				containerName,
+				containerState,
 				containerIP,
 				site.ContainerPort,
 			)
