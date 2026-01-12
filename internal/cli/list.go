@@ -53,9 +53,9 @@ var listCmd = &cobra.Command{
 		}
 
 		// 3. 显示列表
-		// 格式: Subdomain | Status | Container | State | IP | Port
-		fmt.Printf("%-20s | %-10s | %-20s | %-10s | %-15s | %-10s\n", "Subdomain", "Status", "Container", "State", "IP", "Port")
-		fmt.Println(strings.Repeat("-", 100))
+		// 格式: Type | Name | Target | Destination | Status | State
+		fmt.Printf("%-10s | %-20s | %-10s | %-30s | %-10s | %-10s\n", "Type", "Name", "Target", "Destination", "Status", "State")
+		fmt.Println(strings.Repeat("-", 110))
 
 		for _, site := range sites {
 			statusColor := color.New(color.FgGreen).SprintFunc()
@@ -63,33 +63,42 @@ var listCmd = &cobra.Command{
 				statusColor = color.New(color.FgRed).SprintFunc()
 			}
 
-			containerName := site.ContainerName
-			containerIP := "N/A"
-			containerState := "N/A"
-
-			// 尝试关联容器信息
-			if info, ok := containerMap[containerName]; ok {
-				containerIP = info.IP
-				containerState = info.State
-				if info.State == "running" {
-					containerState = color.GreenString(info.State)
-				} else {
-					containerState = color.RedString(info.State)
-				}
-				containerName = color.GreenString(containerName) // 在线
-			} else if containerName != "" {
-				containerName = color.RedString(containerName) // 离线或未找到
-			} else {
-				containerName = "Unknown"
+			dest := site.TargetDest
+			if site.TargetType == nginx.TargetContainer {
+				dest = fmt.Sprintf("%s:%s", site.TargetDest, site.ContainerPort)
+			} else if site.TargetType == nginx.TargetIP {
+				dest = fmt.Sprintf("%s:%s", site.TargetDest, site.ContainerPort)
 			}
 
-			fmt.Printf("%-20s | %-10s | %-29s | %-20s | %-15s | %-10s\n",
+			containerState := ""
+
+			// 仅当目标是容器时，尝试获取容器状态
+			if site.TargetType == nginx.TargetContainer {
+				if info, ok := containerMap[site.TargetDest]; ok {
+					containerState = info.State
+					if info.State == "running" {
+						containerState = color.GreenString(info.State)
+						// 高亮 destination 表示在线
+						dest = color.GreenString(dest)
+					} else {
+						containerState = color.RedString(info.State)
+						dest = color.RedString(dest)
+					}
+				} else {
+					containerState = color.RedString("Not Found")
+					dest = color.RedString(dest)
+				}
+			} else {
+				containerState = "-"
+			}
+
+			fmt.Printf("%-10s | %-20s | %-10s | %-39s | %-10s | %-20s\n",
+				site.Type,
 				site.Name,
+				site.TargetType,
+				dest,
 				statusColor(site.Status),
-				containerName,
 				containerState,
-				containerIP,
-				site.ContainerPort,
 			)
 		}
 	},
