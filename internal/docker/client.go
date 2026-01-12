@@ -115,3 +115,8 @@ func (c *Client) ReloadNginx(ctx context.Context, containerName string) error {
 
 	return nil
 }
+
+// RestartContainer 重启指定容器
+func (c *Client) RestartContainer(ctx context.Context, containerName string) error {
+	return c.cli.ContainerRestart(ctx, containerName, container.StopOptions{})
+}

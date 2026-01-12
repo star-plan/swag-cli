@@ -161,11 +161,11 @@ func runAddFlow(swagDir string, swagContainerName string, network string) {
 
 	color.Green("配置已生成: %s", path)
 
-	// 5. Reload Nginx
-	color.Yellow("正在重载 SWAG (%s) Nginx...", swagContainerName)
-	if err := cli.ReloadNginx(context.Background(), swagContainerName); err != nil {
-		color.Red("Nginx 重载失败: %v", err)
+	// 5. Restart SWAG Container
+	color.Yellow("正在重启 SWAG 容器 (%s)...", swagContainerName)
+	if err := cli.RestartContainer(context.Background(), swagContainerName); err != nil {
+		color.Red("SWAG 容器重启失败: %v", err)
 	} else {
-		color.Green("Nginx 重载成功！站点应已生效。")
+		color.Green("SWAG 容器重启成功！站点应已生效。")
 	}
 }
