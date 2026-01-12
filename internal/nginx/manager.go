@@ -1,9 +1,11 @@
 package nginx
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -17,9 +19,11 @@ const (
 
 // SiteConfig 表示一个站点配置
 type SiteConfig struct {
-	Name     string     // 站点名称 (subdomain)
-	Filename string     // 完整文件名
-	Status   SiteStatus // 状态
+	Name          string     // 站点名称 (subdomain)
+	Filename      string     // 完整文件名
+	Status        SiteStatus // 状态
+	ContainerName string     // 代理指向的容器名 (从配置中解析)
+	ContainerPort string     // 代理指向的端口 (从配置中解析)
 }
 
 // Manager 管理 Nginx 配置文件
@@ -53,21 +57,55 @@ func (m *Manager) ListSites() ([]SiteConfig, error) {
 		// SWAG format: <subdomain>.subdomain.conf
 		if strings.HasSuffix(name, ".subdomain.conf") {
 			subdomain := strings.TrimSuffix(name, ".subdomain.conf")
-			sites = append(sites, SiteConfig{
+			config := SiteConfig{
 				Name:     subdomain,
 				Filename: name,
 				Status:   StatusEnabled,
-			})
+			}
+			m.parseConfigDetails(&config)
+			sites = append(sites, config)
 		} else if strings.HasSuffix(name, ".subdomain.conf.disabled") {
 			subdomain := strings.TrimSuffix(name, ".subdomain.conf.disabled")
-			sites = append(sites, SiteConfig{
+			config := SiteConfig{
 				Name:     subdomain,
 				Filename: name,
 				Status:   StatusDisabled,
-			})
+			}
+			m.parseConfigDetails(&config)
+			sites = append(sites, config)
 		}
 	}
 	return sites, nil
+}
+
+// parseConfigDetails 解析配置文件内容以提取容器信息
+func (m *Manager) parseConfigDetails(config *SiteConfig) {
+	fullPath := filepath.Join(m.BasePath, config.Filename)
+	file, err := os.Open(fullPath)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+
+	// 简单的正则匹配 set $upstream_app <name>; 和 set $upstream_port <port>;
+	// 或者 proxy_pass
+	// SWAG 模板通常使用:
+	// set $upstream_app <container_name>;
+	// set $upstream_port <port>;
+
+	reApp := regexp.MustCompile(`set\s+\$upstream_app\s+([^;]+);`)
+	rePort := regexp.MustCompile(`set\s+\$upstream_port\s+([^;]+);`)
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if matches := reApp.FindStringSubmatch(line); len(matches) > 1 {
+			config.ContainerName = strings.TrimSpace(matches[1])
+		}
+		if matches := rePort.FindStringSubmatch(line); len(matches) > 1 {
+			config.ContainerPort = strings.TrimSpace(matches[1])
+		}
+	}
 }
 
 // ToggleSite 切换站点状态

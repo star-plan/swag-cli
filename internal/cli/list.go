@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"swag-cli/internal/docker"
+	"swag-cli/internal/nginx"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
@@ -13,26 +15,72 @@ import (
 
 var listCmd = &cobra.Command{
 	Use:   "list",
-	Short: "列出 SWAG 网络中的容器",
+	Short: "列出已配置的站点及其对应的容器状态",
 	Run: func(cmd *cobra.Command, args []string) {
+		confDir, _ := cmd.Flags().GetString("conf-dir")
 		network, _ := cmd.Flags().GetString("network")
 
+		// 1. 获取 Nginx 站点配置
+		manager := nginx.NewManager(confDir)
+		sites, err := manager.ListSites()
+		if err != nil {
+			color.Red("读取配置文件失败: %v", err)
+			os.Exit(1)
+		}
+
+		if len(sites) == 0 {
+			color.Yellow("未找到任何站点配置 (在 %s)", confDir)
+			return
+		}
+
+		// 2. 获取 Docker 容器信息 (尝试获取，如果不成功也不阻断列表显示)
+		var containerMap = make(map[string]docker.ContainerInfo)
 		client, err := docker.NewClient()
-		if err != nil {
-			color.Red("无法连接到 Docker: %v", err)
-			os.Exit(1)
+		if err == nil {
+			containers, err := client.ListContainersByNetwork(context.Background(), network)
+			if err == nil {
+				for _, c := range containers {
+					// 映射 Name 和 ID
+					containerMap[c.Name] = c
+				}
+			} else {
+				color.Yellow("警告: 无法获取网络 '%s' 中的容器: %v", network, err)
+			}
+		} else {
+			color.Yellow("警告: 无法连接 Docker: %v", err)
 		}
 
-		containers, err := client.ListContainersByNetwork(context.Background(), network)
-		if err != nil {
-			color.Red("获取容器列表失败: %v", err)
-			os.Exit(1)
-		}
+		// 3. 显示列表
+		// 格式: Subdomain | Status | Container | IP | Port
+		fmt.Printf("%-20s | %-10s | %-20s | %-15s | %-10s\n", "Subdomain", "Status", "Container", "IP", "Port")
+		fmt.Println(strings.Repeat("-", 90))
 
-		color.Green("在网络 '%s' 中发现 %d 个容器:", network, len(containers))
-		fmt.Println("------------------------------------------------")
-		for _, c := range containers {
-			fmt.Printf("Name: %-20s IP: %s\n", c.Name, c.IP)
+		for _, site := range sites {
+			statusColor := color.New(color.FgGreen).SprintFunc()
+			if site.Status == nginx.StatusDisabled {
+				statusColor = color.New(color.FgRed).SprintFunc()
+			}
+
+			containerName := site.ContainerName
+			containerIP := "N/A"
+
+			// 尝试关联容器信息
+			if info, ok := containerMap[containerName]; ok {
+				containerIP = info.IP
+				containerName = color.GreenString(containerName) // 在线
+			} else if containerName != "" {
+				containerName = color.RedString(containerName) // 离线或未找到
+			} else {
+				containerName = "Unknown"
+			}
+
+			fmt.Printf("%-20s | %-10s | %-29s | %-15s | %-10s\n",
+				site.Name,
+				statusColor(site.Status),
+				containerName,
+				containerIP,
+				site.ContainerPort,
+			)
 		}
 	},
 }
