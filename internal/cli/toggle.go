@@ -30,7 +30,7 @@ var toggleCmd = &cobra.Command{
 		} else {
 			color.Yellow("站点 '%s' 已禁用", subdomain)
 		}
-		
+
 		// 触发 Nginx reload
 		swagContainer, _ := cmd.Flags().GetString("swag-container")
 		client, err := docker.NewClient()

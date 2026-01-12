@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"swag-cli/internal/config"
 	"swag-cli/internal/tui"
 
 	"github.com/spf13/cobra"
@@ -16,7 +17,9 @@ var rootCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		// 如果没有参数，默认进入交互模式 (TUI)
 		confDir, _ := cmd.Flags().GetString("conf-dir")
-		tui.Run(confDir)
+		swagContainer, _ := cmd.Flags().GetString("swag-container")
+		network, _ := cmd.Flags().GetString("network")
+		tui.Run(confDir, swagContainer, network)
 	},
 }
 
@@ -30,7 +33,13 @@ func Execute() {
 }
 
 func init() {
+	cfg, err := config.Load()
+	if err != nil {
+		cfg = config.Default()
+	}
+
 	// 这里可以定义全局 flag
-	rootCmd.PersistentFlags().StringP("conf-dir", "d", "./proxy-confs", "SWAG proxy-confs 目录路径")
-	rootCmd.PersistentFlags().String("swag-container", "swag", "SWAG 容器名称 (用于 reload)")
+	rootCmd.PersistentFlags().StringP("conf-dir", "d", cfg.ConfDir, "SWAG proxy-confs 目录路径")
+	rootCmd.PersistentFlags().String("swag-container", cfg.SwagContainer, "SWAG 容器名称 (用于 reload)")
+	rootCmd.PersistentFlags().StringP("network", "n", cfg.Network, "Docker 网络名称 (用于容器发现)")
 }

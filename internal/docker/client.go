@@ -50,7 +50,7 @@ func (c *Client) ListContainersByNetwork(ctx context.Context, networkName string
 		// 检查容器是否连接到了目标网络
 		if settings, ok := container.NetworkSettings.Networks[networkName]; ok {
 			name := strings.TrimPrefix(container.Names[0], "/")
-			
+
 			// 尝试获取别名，通常第一个别名是服务名
 			// 注意：Aliases 包含 ContainerID 等，这里我们简单取 Name 或第一个有意义的 Alias
 			// 实际场景中，容器名通常就是我们在 compose 中定义的 service name (如果 container_name 未指定)
@@ -102,7 +102,7 @@ func (c *Client) ReloadNginx(ctx context.Context, containerName string) error {
 	if _, err := stdcopy.StdCopy(&outBuf, &errBuf, resp.Reader); err != nil {
 		return fmt.Errorf("failed to read exec output: %w", err)
 	}
-	
+
 	// 5. 检查退出代码
 	execInspect, err := c.cli.ContainerExecInspect(ctx, execIDResp.ID)
 	if err != nil {

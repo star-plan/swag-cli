@@ -12,11 +12,7 @@ import (
 )
 
 // Run 启动交互式向导
-func Run(confDir string) {
-	// 简单起见，TUI 模式下假设 SWAG 容器名为 "swag"
-	// 实际应用中可以从 flag 传入，或者在 TUI 设置中配置
-	swagContainerName := "swag" 
-
+func Run(confDir string, swagContainerName string, network string) {
 	for {
 		action := ""
 		prompt := &survey.Select{
@@ -27,7 +23,7 @@ func Run(confDir string) {
 
 		switch action {
 		case "添加新站点 (Add)":
-			runAddFlow(confDir, swagContainerName)
+			runAddFlow(confDir, swagContainerName, network)
 		case "查看站点列表 (List)":
 			// TODO: 调用 list 逻辑
 			color.Yellow("列表功能在交互模式下暂未完全集成，请使用 'swag-cli list' 命令")
@@ -38,7 +34,7 @@ func Run(confDir string) {
 	}
 }
 
-func runAddFlow(confDir string, swagContainerName string) {
+func runAddFlow(confDir string, swagContainerName string, network string) {
 	// 1. 获取容器列表
 	cli, err := docker.NewClient()
 	if err != nil {
@@ -46,9 +42,9 @@ func runAddFlow(confDir string, swagContainerName string) {
 		return
 	}
 
-	containers, err := cli.ListContainersByNetwork(context.Background(), "swag")
+	containers, err := cli.ListContainersByNetwork(context.Background(), network)
 	if err != nil {
-		color.Red("无法获取容器列表 (请确保容器已加入 'swag' 网络): %v", err)
+		color.Red("无法获取容器列表 (请确保容器已加入 '%s' 网络): %v", network, err)
 		return
 	}
 

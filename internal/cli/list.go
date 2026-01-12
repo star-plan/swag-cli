@@ -86,6 +86,5 @@ var listCmd = &cobra.Command{
 }
 
 func init() {
-	listCmd.Flags().StringP("network", "n", "swag", "指定 Docker 网络名称")
 	rootCmd.AddCommand(listCmd)
 }

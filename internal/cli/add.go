@@ -77,6 +77,6 @@ func init() {
 	addCmd.Flags().StringP("subdomain", "s", "", "子域名 (默认为容器名)")
 	addCmd.Flags().IntP("port", "p", 80, "容器内部端口")
 	addCmd.Flags().String("proto", "http", "协议 (http/https)")
-	
+
 	rootCmd.AddCommand(addCmd)
 }
