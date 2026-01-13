@@ -57,6 +57,9 @@ func (g *Generator) GenerateConfig(data ConfigData) (string, error) {
 
 	// 写入文件
 	if err := os.WriteFile(fullPath, buf.Bytes(), 0644); err != nil {
+		if os.IsPermission(err) {
+			return "", fmt.Errorf("failed to write config file: %w.\nHint: Check PUID/PGID in docker-compose.yml matches your current user (id=%d)", err, os.Getuid())
+		}
 		return "", fmt.Errorf("failed to write config file: %w", err)
 	}
 
