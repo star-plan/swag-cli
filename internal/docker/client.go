@@ -120,6 +120,51 @@ func (c *Client) ReloadNginx(ctx context.Context, containerName string) error {
 	return nil
 }
 
+// Rediscover Swag Container to confirm name
+func (c *Client) InspectContainer(ctx context.Context, name string) (*types.ContainerJSON, error) {
+	resp, err := c.cli.ContainerInspect(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// Exec executes a command inside a running container and returns the output
+func (c *Client) Exec(ctx context.Context, containerName string, cmd []string) (string, error) {
+	execConfig := types.ExecConfig{
+		Cmd:          cmd,
+		AttachStdout: true,
+		AttachStderr: true,
+	}
+
+	execIDResp, err := c.cli.ContainerExecCreate(ctx, containerName, execConfig)
+	if err != nil {
+		return "", fmt.Errorf("failed to create exec: %w", err)
+	}
+
+	resp, err := c.cli.ContainerExecAttach(ctx, execIDResp.ID, types.ExecStartCheck{})
+	if err != nil {
+		return "", fmt.Errorf("failed to attach exec: %w", err)
+	}
+	defer resp.Close()
+
+	var outBuf, errBuf bytes.Buffer
+	if _, err := stdcopy.StdCopy(&outBuf, &errBuf, resp.Reader); err != nil {
+		return "", fmt.Errorf("failed to read exec output: %w", err)
+	}
+
+	execInspect, err := c.cli.ContainerExecInspect(ctx, execIDResp.ID)
+	if err != nil {
+		return "", fmt.Errorf("failed to inspect exec: %w", err)
+	}
+
+	if execInspect.ExitCode != 0 {
+		return "", fmt.Errorf("command failed (exit code %d): %s | %s", execInspect.ExitCode, outBuf.String(), errBuf.String())
+	}
+
+	return outBuf.String(), nil
+}
+
 // RestartContainer 重启指定容器
 func (c *Client) RestartContainer(ctx context.Context, containerName string) error {
 	return c.cli.ContainerRestart(ctx, containerName, container.StopOptions{})
