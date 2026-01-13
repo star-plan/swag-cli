@@ -26,22 +26,35 @@ func Default() Config {
 
 // ProxyConfsDir returns the path to nginx proxy-confs directory
 func (c Config) ProxyConfsDir() string {
-	return filepath.Join(c.SwagDir, "config", "nginx", "proxy-confs")
+	return filepath.Join(expandPath(c.SwagDir), "config", "nginx", "proxy-confs")
 }
 
 // NginxConfigDir returns the path to nginx config directory
 func (c Config) NginxConfigDir() string {
-	return filepath.Join(c.SwagDir, "config", "nginx")
+	return filepath.Join(expandPath(c.SwagDir), "config", "nginx")
 }
 
 // LogDir returns the path to nginx log directory
 func (c Config) LogDir() string {
-	return filepath.Join(c.SwagDir, "config", "log", "nginx")
+	return filepath.Join(expandPath(c.SwagDir), "config", "log", "nginx")
 }
 
 // SSLCertDir returns the path to SSL certificates directory
 func (c Config) SSLCertDir() string {
-	return filepath.Join(c.SwagDir, "config", "etc", "letsencrypt")
+	return filepath.Join(expandPath(c.SwagDir), "config", "etc", "letsencrypt")
+}
+
+func expandPath(path string) string {
+	if strings.HasPrefix(path, "~/") || strings.HasPrefix(path, "~\\") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, path[2:])
+		}
+	} else if path == "~" {
+		if home, err := os.UserHomeDir(); err == nil {
+			return home
+		}
+	}
+	return path
 }
 
 func Path() (string, error) {
