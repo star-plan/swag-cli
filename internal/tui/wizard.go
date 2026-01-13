@@ -224,18 +224,22 @@ func runListFlow(swagDir string, swagContainerName string, network string) {
 			options = append(options, header)
 
 			for _, site := range groupSites {
-				statusIcon := "🟢"
-				// 既然在这组里，肯定是 Enabled，除非是 Disabled 组，但 Disabled 组我们单独处理
+				containerStatus := ""
+				statusIcon := "🟢" // 默认绿色表示 Nginx 配置启用
+
 				if site.Status == nginx.StatusDisabled {
-					statusIcon = "🔴"
+					statusIcon = "🔴" // Disabled 显式红色
 				}
 
-				containerStatus := ""
 				if dockerConnected && site.TargetType == nginx.TargetContainer {
 					if _, ok := containerMap[site.ContainerName]; ok {
 						containerStatus = "(在线)"
 					} else {
 						containerStatus = "(离线)"
+						// 如果配置是 Enabled 但容器离线，使用黄色警告
+						if site.Status == nginx.StatusEnabled {
+							statusIcon = "🟡"
+						}
 					}
 				} else if site.TargetType == nginx.TargetStatic {
 					containerStatus = "(静态)"
