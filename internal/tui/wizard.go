@@ -202,16 +202,23 @@ func runListFlow(swagDir string, swagContainerName string, network string) {
 				statusIcon = "🔴"
 			}
 
-			containerStatus := "(未知)"
-			if dockerConnected {
+			containerStatus := ""
+			if dockerConnected && site.TargetType == nginx.TargetContainer {
 				if _, ok := containerMap[site.ContainerName]; ok {
 					containerStatus = "(在线)"
 				} else {
 					containerStatus = "(离线)"
 				}
+			} else if site.TargetType == nginx.TargetStatic {
+				containerStatus = "(静态)"
 			}
 
-			label := fmt.Sprintf("%s %-20s -> %s:%s %s", statusIcon, site.Name, site.ContainerName, site.ContainerPort, containerStatus)
+			dest := fmt.Sprintf("%s:%s", site.ContainerName, site.ContainerPort)
+			if site.TargetType == nginx.TargetStatic {
+				dest = site.TargetDest // Show root path for static sites
+			}
+
+			label := fmt.Sprintf("%s %-20s -> %-30s %s", statusIcon, site.Name, dest, containerStatus)
 			options = append(options, label)
 			siteMap[label] = site
 		}
