@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/docker/docker/api/types"
@@ -30,11 +32,44 @@ type Client struct {
 
 // NewClient 创建一个新的 Docker 客户端
 func NewClient() (*Client, error) {
+	// 1. 尝试标准连接 (检查 DOCKER_HOST 等环境变量)
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, err
 	}
-	return &Client{cli: cli}, nil
+
+	// 2. Ping 验证连接是否可用
+	_, errPing := cli.Ping(context.Background())
+	if errPing == nil {
+		return &Client{cli: cli}, nil
+	}
+
+	// 3. Rootless 模式回退机制
+	// 如果默认连接失败（通常是 /var/run/docker.sock 权限不足），
+	// 尝试查找 XDG_RUNTIME_DIR 下的 rootless socket
+	if xdgRuntimeDir := os.Getenv("XDG_RUNTIME_DIR"); xdgRuntimeDir != "" {
+		socketPath := filepath.Join(xdgRuntimeDir, "docker.sock")
+		// 检查 socket 文件是否存在
+		if _, err := os.Stat(socketPath); err == nil {
+			// 尝试连接该 socket
+			rootlessCli, err := client.NewClientWithOpts(
+				client.WithHost("unix://"+socketPath),
+				client.WithAPIVersionNegotiation(),
+			)
+			if err == nil {
+				// 验证新的客户端是否可用
+				if _, errPing := rootlessCli.Ping(context.Background()); errPing == nil {
+					cli.Close() // 关闭之前的客户端
+					return &Client{cli: rootlessCli}, nil
+				}
+				rootlessCli.Close()
+			}
+		}
+	}
+
+	// 如果回退也失败，或者没有找到 rootless socket，返回原始错误
+	// 这样用户可以看到最原始的 "permission denied" 等错误信息，便于排查
+	return nil, fmt.Errorf("failed to connect to docker daemon: %w", errPing)
 }
 
 // ListContainersByNetwork 列出指定网络中的所有容器
