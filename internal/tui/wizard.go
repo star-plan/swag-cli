@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"swag-cli/internal/config"
 	"swag-cli/internal/docker"
 	"swag-cli/internal/nginx"
@@ -193,35 +194,68 @@ func runListFlow(swagDir string, swagContainerName string, network string) {
 			}
 		}
 
+		// 分组
+		var containerSites, staticSites, otherSites, disabledSites []nginx.SiteConfig
+		for _, site := range sites {
+			if site.Status == nginx.StatusDisabled {
+				disabledSites = append(disabledSites, site)
+				continue
+			}
+			switch site.TargetType {
+			case nginx.TargetContainer:
+				containerSites = append(containerSites, site)
+			case nginx.TargetStatic:
+				staticSites = append(staticSites, site)
+			default:
+				otherSites = append(otherSites, site)
+			}
+		}
+
 		var options []string
 		siteMap := make(map[string]nginx.SiteConfig)
 
-		for _, site := range sites {
-			statusIcon := "🟢"
-			if site.Status == nginx.StatusDisabled {
-				statusIcon = "🔴"
+		// 辅助函数：生成标签并添加到选项
+		addSites := func(groupName string, groupSites []nginx.SiteConfig) {
+			if len(groupSites) == 0 {
+				return
 			}
+			// 添加分组标题 (用特殊字符标记，处理选择时忽略)
+			header := fmt.Sprintf("─── %s ───", groupName)
+			options = append(options, header)
 
-			containerStatus := ""
-			if dockerConnected && site.TargetType == nginx.TargetContainer {
-				if _, ok := containerMap[site.ContainerName]; ok {
-					containerStatus = "(在线)"
-				} else {
-					containerStatus = "(离线)"
+			for _, site := range groupSites {
+				statusIcon := "🟢"
+				// 既然在这组里，肯定是 Enabled，除非是 Disabled 组，但 Disabled 组我们单独处理
+				if site.Status == nginx.StatusDisabled {
+					statusIcon = "🔴"
 				}
-			} else if site.TargetType == nginx.TargetStatic {
-				containerStatus = "(静态)"
-			}
 
-			dest := fmt.Sprintf("%s:%s", site.ContainerName, site.ContainerPort)
-			if site.TargetType == nginx.TargetStatic {
-				dest = site.TargetDest // Show root path for static sites
-			}
+				containerStatus := ""
+				if dockerConnected && site.TargetType == nginx.TargetContainer {
+					if _, ok := containerMap[site.ContainerName]; ok {
+						containerStatus = "(在线)"
+					} else {
+						containerStatus = "(离线)"
+					}
+				} else if site.TargetType == nginx.TargetStatic {
+					containerStatus = "(静态)"
+				}
 
-			label := fmt.Sprintf("%s %-20s -> %-30s %s", statusIcon, site.Name, dest, containerStatus)
-			options = append(options, label)
-			siteMap[label] = site
+				dest := fmt.Sprintf("%s:%s", site.ContainerName, site.ContainerPort)
+				if site.TargetType == nginx.TargetStatic {
+					dest = site.TargetDest // Show root path for static sites
+				}
+
+				label := fmt.Sprintf("%s %-20s -> %-30s %s", statusIcon, site.Name, dest, containerStatus)
+				options = append(options, label)
+				siteMap[label] = site
+			}
 		}
+
+		addSites("容器 (Containers)", containerSites)
+		addSites("静态 (Static)", staticSites)
+		addSites("其他 (Others)", otherSites)
+		addSites("已禁用 (Disabled)", disabledSites)
 
 		options = append(options, "返回主菜单 (Back)")
 
@@ -229,10 +263,15 @@ func runListFlow(swagDir string, swagContainerName string, network string) {
 		prompt := &survey.Select{
 			Message:  "选择站点查看详情或操作:",
 			Options:  options,
-			PageSize: 10,
+			PageSize: 20, // 增加每页显示数量以容纳分组标题
 		}
 		if err := survey.AskOne(prompt, &selectedLabel); err != nil {
 			return
+		}
+
+		// 处理分组标题选择 (忽略并重试)
+		if strings.HasPrefix(selectedLabel, "───") {
+			continue
 		}
 
 		if selectedLabel == "返回主菜单 (Back)" {
