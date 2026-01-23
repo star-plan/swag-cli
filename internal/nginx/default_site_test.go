@@ -71,6 +71,9 @@ func TestDefaultSiteEditor_SetHomepage_ModifiesLocationAndServerName(t *testing.
 	if res.BackupPath == "" {
 		t.Fatalf("expected backup path")
 	}
+	if filepath.Dir(res.BackupPath) != filepath.Join(tmpDir, ".bak") {
+		t.Fatalf("expected backup in .bak dir, got: %s", res.BackupPath)
+	}
 	if _, err := os.Stat(res.BackupPath); err != nil {
 		t.Fatalf("backup file missing: %v", err)
 	}
@@ -168,6 +171,9 @@ func TestDefaultSiteEditor_ClearHomepage_RestoresTryFilesAndUnderscore(t *testin
 	if res.BackupPath == "" {
 		t.Fatalf("expected backup path")
 	}
+	if filepath.Dir(res.BackupPath) != filepath.Join(tmpDir, ".bak") {
+		t.Fatalf("expected backup in .bak dir, got: %s", res.BackupPath)
+	}
 	if _, err := os.Stat(res.BackupPath); err != nil {
 		t.Fatalf("backup file missing: %v", err)
 	}
@@ -221,4 +227,3 @@ func TestDefaultSiteEditor_SetHomepage_KeepServerNameUnderscore(t *testing.T) {
 		t.Fatalf("expected server_name _; got:\n%s", out)
 	}
 }
-

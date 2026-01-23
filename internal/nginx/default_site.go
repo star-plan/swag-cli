@@ -44,6 +44,12 @@ func (e *DefaultSiteEditor) SetHomepage(cfg HomepageConfig, dryRun bool) (EditRe
 		return EditResult{}, fmt.Errorf("invalid upstream proto: %s", cfg.UpstreamProto)
 	}
 
+	if !dryRun {
+		if err := migrateLegacyBackups(e.Path); err != nil {
+			return EditResult{}, err
+		}
+	}
+
 	original, err := os.ReadFile(e.Path)
 	if err != nil {
 		return EditResult{}, err
@@ -80,6 +86,12 @@ func (e *DefaultSiteEditor) SetHomepage(cfg HomepageConfig, dryRun bool) (EditRe
 }
 
 func (e *DefaultSiteEditor) ClearHomepage(domain string, restoreServerNameUnderscore bool, dryRun bool) (EditResult, error) {
+	if !dryRun {
+		if err := migrateLegacyBackups(e.Path); err != nil {
+			return EditResult{}, err
+		}
+	}
+
 	original, err := os.ReadFile(e.Path)
 	if err != nil {
 		return EditResult{}, err
@@ -377,12 +389,47 @@ func containsNonComment(body string, needle string) bool {
 func backupFile(path string, content []byte) (string, error) {
 	dir := filepath.Dir(path)
 	base := filepath.Base(path)
+	backupDir := filepath.Join(dir, ".bak")
+	if err := os.MkdirAll(backupDir, 0o755); err != nil {
+		return "", err
+	}
 	ts := time.Now().Format("20060102-150405")
-	backup := filepath.Join(dir, fmt.Sprintf("%s.bak-%s", base, ts))
+	backup := filepath.Join(backupDir, fmt.Sprintf("%s.bak-%s", base, ts))
 	if err := os.WriteFile(backup, content, 0o644); err != nil {
 		return "", err
 	}
 	return backup, nil
+}
+
+func migrateLegacyBackups(path string) error {
+	dir := filepath.Dir(path)
+	base := filepath.Base(path)
+	pattern := filepath.Join(dir, fmt.Sprintf("%s.bak-*", base))
+
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		return err
+	}
+	if len(matches) == 0 {
+		return nil
+	}
+
+	backupDir := filepath.Join(dir, ".bak")
+	if err := os.MkdirAll(backupDir, 0o755); err != nil {
+		return err
+	}
+
+	for _, src := range matches {
+		dst := filepath.Join(backupDir, filepath.Base(src))
+		if _, err := os.Stat(dst); err == nil {
+			dst = filepath.Join(backupDir, fmt.Sprintf("%s.%d", filepath.Base(src), time.Now().UnixNano()))
+		}
+
+		if err := os.Rename(src, dst); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func writeFileAtomic(path string, content []byte) error {

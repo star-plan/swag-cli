@@ -95,6 +95,7 @@ swag-cli homepage clear --restore-server-name-underscore
 说明：
 - 子域名（如 `a.example.com`）仍通过 `config/nginx/proxy-confs/*.subdomain.conf` 管理（`add/toggle/list`）。  
 - 根域名主页通过修改 `config/nginx/site-confs/default`（或兼容路径 `site-conf/default`）的 `location /` 来实现。
+- 工具会在 `config/nginx/site-confs/.bak/` 下自动保存 default 的备份，避免被 `include /config/nginx/site-confs/*;` 误加载。
 
 **列出所有站点**
 ```bash
