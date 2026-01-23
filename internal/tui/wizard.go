@@ -24,13 +24,15 @@ func Run(swagDir string, swagContainerName string, network string, version strin
 		action := ""
 		prompt := &survey.Select{
 			Message: "请选择操作:",
-			Options: []string{"添加新站点 (Add)", "查看站点列表 (List)", "退出 (Exit)"},
+			Options: []string{"添加新站点 (Add)", "设置主页 (Homepage)", "查看站点列表 (List)", "退出 (Exit)"},
 		}
 		survey.AskOne(prompt, &action)
 
 		switch action {
 		case "添加新站点 (Add)":
 			runAddFlow(swagDir, swagContainerName, network)
+		case "设置主页 (Homepage)":
+			runHomepageFlow(swagDir, swagContainerName, network)
 		case "查看站点列表 (List)":
 			runListFlow(swagDir, swagContainerName, network)
 		case "退出 (Exit)":
@@ -163,6 +165,142 @@ func runAddFlow(swagDir string, swagContainerName string, network string) {
 
 	// 5. Restart SWAG Container
 	restartSwagContainer(swagContainerName)
+}
+
+func runHomepageFlow(swagDir string, swagContainerName string, network string) {
+	cfg, err := config.Load()
+	if err != nil {
+		color.Red("加载配置失败: %v", err)
+		return
+	}
+
+	if swagContainerName == "" {
+		swagContainerName = cfg.SwagContainer
+	}
+	if swagDir == "" {
+		swagDir = cfg.SwagDir
+	}
+
+	cli, err := docker.NewClient()
+	if err != nil {
+		color.Red("Docker 连接失败: %v", err)
+		return
+	}
+
+	containers, err := cli.ListContainersByNetwork(context.Background(), network)
+	if err != nil {
+		color.Red("无法获取容器列表 (请确保容器已加入 '%s' 网络): %v", network, err)
+		return
+	}
+
+	var options []string
+	containerMap := make(map[string]docker.ContainerInfo)
+	for _, c := range containers {
+		if c.Name == swagContainerName {
+			continue
+		}
+		label := fmt.Sprintf("%s (%s)", c.Name, c.IP)
+		options = append(options, label)
+		containerMap[label] = c
+	}
+
+	if len(options) == 0 {
+		color.Yellow("网络 '%s' 中没有可设置为主页的容器（已排除 swag 容器 '%s'）", network, swagContainerName)
+		return
+	}
+
+	selectedLabel := ""
+	prompt := &survey.Select{
+		Message: "选择主页目标容器:",
+		Options: options,
+	}
+	if err := survey.AskOne(prompt, &selectedLabel); err != nil {
+		return
+	}
+	selectedContainer := containerMap[selectedLabel]
+
+	var answers struct {
+		Domain    string
+		Port      int
+		Protocol  string
+		KeepUnderscore bool
+	}
+
+	qs := []*survey.Question{
+		{
+			Name: "Domain",
+			Prompt: &survey.Input{
+				Message: "请输入根域名 (例如 example.com):",
+			},
+			Validate: survey.Required,
+		},
+		{
+			Name: "Port",
+			Prompt: &survey.Input{
+				Message: "容器端口:",
+				Default: "80",
+			},
+		},
+		{
+			Name: "Protocol",
+			Prompt: &survey.Select{
+				Message: "协议:",
+				Options: []string{"http", "https"},
+				Default: "http",
+			},
+		},
+		{
+			Name: "KeepUnderscore",
+			Prompt: &survey.Confirm{
+				Message: "是否保持 server_name 为 '_' (不修改 server_name)?",
+				Default: false,
+			},
+		},
+	}
+
+	if err := survey.Ask(qs, &answers); err != nil {
+		fmt.Println(err.Error())
+		return
+	}
+
+	siteCfg := config.Config{SwagDir: swagDir}
+	defaultPath, err := siteCfg.DefaultSiteConfPath()
+	if err != nil {
+		color.Red("无法定位 default 站点配置文件: %v", err)
+		return
+	}
+
+	editor := nginx.NewDefaultSiteEditor(defaultPath)
+	res, err := editor.SetHomepage(nginx.HomepageConfig{
+		Domain:                   answers.Domain,
+		UpstreamApp:              selectedContainer.Name,
+		UpstreamPort:             answers.Port,
+		UpstreamProto:            answers.Protocol,
+		KeepServerNameUnderscore: answers.KeepUnderscore,
+	}, false)
+	if err != nil {
+		color.Red("设置主页失败: %v", err)
+		return
+	}
+
+	if !res.Changed {
+		color.Yellow("未检测到变更，跳过写入。")
+		return
+	}
+
+	if res.BackupPath != "" {
+		color.Cyan("已创建备份: %s", res.BackupPath)
+	}
+	color.Green("主页已更新: %s", defaultPath)
+
+	color.Yellow("正在重载 SWAG (%s) Nginx...", swagContainerName)
+	if err := cli.ReloadNginx(context.Background(), swagContainerName); err != nil {
+		color.Red("Nginx 重载失败: %v", err)
+		color.Yellow("将尝试重启容器以应用配置...")
+		restartSwagContainer(swagContainerName)
+		return
+	}
+	color.Green("Nginx 重载成功！站点应已生效。")
 }
 
 func runListFlow(swagDir string, swagContainerName string, network string) {

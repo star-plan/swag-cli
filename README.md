@@ -81,6 +81,21 @@ swag-cli add my-app
 swag-cli add my-app --subdomain app --port 8080 --proto http
 ```
 
+**设置根域名主页 (Homepage / Root Domain)**
+```bash
+# 将 example.com 的主页反代到容器 my-app:8080
+swag-cli homepage set my-app --domain example.com --port 8080 --proto http
+
+# 只计算变更，不写入（用于确认定位的文件与修改逻辑）
+swag-cli homepage set my-app --domain example.com --port 8080 --proto http --dry-run
+
+# 清理主页反代，恢复 default 的 try_files 行为（并恢复 server_name 为 '_'）
+swag-cli homepage clear --restore-server-name-underscore
+```
+说明：
+- 子域名（如 `a.example.com`）仍通过 `config/nginx/proxy-confs/*.subdomain.conf` 管理（`add/toggle/list`）。  
+- 根域名主页通过修改 `config/nginx/site-confs/default`（或兼容路径 `site-conf/default`）的 `location /` 来实现。
+
 **列出所有站点**
 ```bash
 swag-cli list

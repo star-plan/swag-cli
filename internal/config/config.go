@@ -29,6 +29,31 @@ func (c Config) ProxyConfsDir() string {
 	return filepath.Join(expandPath(c.SwagDir), "config", "nginx", "proxy-confs")
 }
 
+// SiteConfsDir returns the path to nginx site-confs directory
+func (c Config) SiteConfsDir() string {
+	return filepath.Join(expandPath(c.SwagDir), "config", "nginx", "site-confs")
+}
+
+// DefaultSiteConfPath returns the path to nginx default site configuration file.
+// It prefers "site-confs/default" and falls back to "site-conf/default" for compatibility.
+func (c Config) DefaultSiteConfPath() (string, error) {
+	p1 := filepath.Join(expandPath(c.SwagDir), "config", "nginx", "site-confs", "default")
+	if _, err := os.Stat(p1); err == nil {
+		return p1, nil
+	}
+
+	p2 := filepath.Join(expandPath(c.SwagDir), "config", "nginx", "site-conf", "default")
+	if _, err := os.Stat(p2); err == nil {
+		return p2, nil
+	}
+
+	if _, err := os.Stat(filepath.Join(expandPath(c.SwagDir), "config", "nginx")); err != nil {
+		return "", fmt.Errorf("nginx config directory not found: %w", err)
+	}
+
+	return p1, fmt.Errorf("default site config not found (checked: %s, %s)", p1, p2)
+}
+
 // NginxConfigDir returns the path to nginx config directory
 func (c Config) NginxConfigDir() string {
 	return filepath.Join(expandPath(c.SwagDir), "config", "nginx")
