@@ -70,6 +70,56 @@ func (c Config) SSLCertDir() string {
 	return filepath.Join(expandPath(c.SwagDir), "config", "etc", "letsencrypt")
 }
 
+// DNSConfDir returns the path to DNS provider configuration directory.
+func (c Config) DNSConfDir() string {
+	return filepath.Join(expandPath(c.SwagDir), "config", "dns-conf")
+}
+
+// KeysDir returns the path to SWAG keys directory.
+func (c Config) KeysDir() string {
+	return filepath.Join(expandPath(c.SwagDir), "config", "keys")
+}
+
+// LetsEncryptDir returns the path to Let's Encrypt directory (same as SSLCertDir).
+func (c Config) LetsEncryptDir() string {
+	return filepath.Join(expandPath(c.SwagDir), "config", "etc", "letsencrypt")
+}
+
+// Fail2banDir returns the path to fail2ban directory.
+func (c Config) Fail2banDir() string {
+	return filepath.Join(expandPath(c.SwagDir), "config", "fail2ban")
+}
+
+// CustomContInitDir returns the path to custom container init scripts directory.
+func (c Config) CustomContInitDir() string {
+	return filepath.Join(expandPath(c.SwagDir), "config", "custom-cont-init.d")
+}
+
+// CustomServicesDir returns the path to custom services scripts directory.
+func (c Config) CustomServicesDir() string {
+	return filepath.Join(expandPath(c.SwagDir), "config", "custom-services.d")
+}
+
+// CrontabsDir returns the path to crontabs directory.
+func (c Config) CrontabsDir() string {
+	return filepath.Join(expandPath(c.SwagDir), "config", "crontabs")
+}
+
+// PHPDir returns the path to php configuration directory.
+func (c Config) PHPDir() string {
+	return filepath.Join(expandPath(c.SwagDir), "config", "php")
+}
+
+// WWWDir returns the path to static web directory.
+func (c Config) WWWDir() string {
+	return filepath.Join(expandPath(c.SwagDir), "config", "www")
+}
+
+// ComposePath returns the path to compose.yaml in SWAG base directory.
+func (c Config) ComposePath() string {
+	return filepath.Join(expandPath(c.SwagDir), "compose.yaml")
+}
+
 func expandPath(path string) string {
 	if strings.HasPrefix(path, "~/") || strings.HasPrefix(path, "~\\") {
 		if home, err := os.UserHomeDir(); err == nil {
