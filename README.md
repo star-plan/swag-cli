@@ -58,6 +58,23 @@ swag-cli config set swag-container swag
 swag-cli config set network swag
 ```
 
+你也可以一键导出/导入这份全局配置，用于多机器迁移或备份恢复：
+
+```bash
+# 导出到文件（默认导出到当前目录并带时间戳文件名）
+swag-cli config export
+
+# 导出到指定文件
+swag-cli config export ./swag-cli.config.json
+
+# 导出到 stdout（可用于重定向/管道）
+swag-cli config export --stdout > swag-cli.config.json
+
+# 从文件导入（默认会展示变更并要求确认；可用 -y 跳过确认）
+swag-cli config import ./swag-cli.config.json
+swag-cli config import -y ./swag-cli.config.json
+```
+
 ### 2. 交互模式 (TUI)
 
 直接运行命令不带参数，即可进入交互式向导模式：

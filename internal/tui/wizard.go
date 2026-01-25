@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"swag-cli/internal/config"
 	"swag-cli/internal/docker"
 	"swag-cli/internal/nginx"
+	"time"
 
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/fatih/color"
@@ -24,7 +26,7 @@ func Run(swagDir string, swagContainerName string, network string, version strin
 		action := ""
 		prompt := &survey.Select{
 			Message: "请选择操作:",
-			Options: []string{"添加新站点 (Add)", "设置主页 (Homepage)", "查看站点列表 (List)", "退出 (Exit)"},
+			Options: []string{"添加新站点 (Add)", "设置主页 (Homepage)", "查看站点列表 (List)", "配置导出/导入 (Config)", "退出 (Exit)"},
 		}
 		survey.AskOne(prompt, &action)
 
@@ -35,11 +37,166 @@ func Run(swagDir string, swagContainerName string, network string, version strin
 			runHomepageFlow(swagDir, swagContainerName, network)
 		case "查看站点列表 (List)":
 			runListFlow(swagDir, swagContainerName, network)
+		case "配置导出/导入 (Config)":
+			runConfigFlow()
 		case "退出 (Exit)":
 			os.Exit(0)
 		}
 		fmt.Println()
 	}
+}
+
+func runConfigFlow() {
+	for {
+		action := ""
+		prompt := &survey.Select{
+			Message: "配置导出/导入:",
+			Options: []string{"查看当前配置 (Show)", "导出配置 (Export)", "导入配置 (Import)", "返回主菜单 (Back)"},
+		}
+		if err := survey.AskOne(prompt, &action); err != nil {
+			return
+		}
+
+		switch action {
+		case "查看当前配置 (Show)":
+			cfg, err := config.Load()
+			if err != nil {
+				color.Red("加载配置失败: %v", err)
+				continue
+			}
+			fmt.Println()
+			color.Cyan("当前 swag-cli 全局配置:")
+			fmt.Printf("  swag-dir: %s\n", cfg.SwagDir)
+			fmt.Printf("  swag-container: %s\n", cfg.SwagContainer)
+			fmt.Printf("  network: %s\n", cfg.Network)
+			fmt.Println()
+		case "导出配置 (Export)":
+			cfg, err := config.Load()
+			if err != nil {
+				color.Red("加载配置失败: %v", err)
+				continue
+			}
+
+			out := ""
+			prompt := &survey.Input{
+				Message: "导出文件路径:",
+				Default: defaultExportPathForTUI(),
+			}
+			if err := survey.AskOne(prompt, &out, survey.WithValidator(survey.Required)); err != nil {
+				continue
+			}
+
+			out = filepath.Clean(strings.TrimSpace(out))
+			if err := config.ExportTo(out, cfg, true); err != nil {
+				color.Red("导出失败: %v", err)
+				continue
+			}
+
+			color.Green("已导出到: %s", out)
+		case "导入配置 (Import)":
+			in := ""
+			prompt := &survey.Input{
+				Message: "导入文件路径:",
+			}
+			validator := func(ans interface{}) error {
+				s, ok := ans.(string)
+				if !ok {
+					return fmt.Errorf("无效输入")
+				}
+				p := filepath.Clean(strings.TrimSpace(s))
+				if p == "" {
+					return fmt.Errorf("路径不能为空")
+				}
+				if _, err := os.Stat(p); err != nil {
+					return fmt.Errorf("文件不存在或不可访问")
+				}
+				return nil
+			}
+			if err := survey.AskOne(prompt, &in, survey.WithValidator(validator)); err != nil {
+				continue
+			}
+
+			in = filepath.Clean(strings.TrimSpace(in))
+			newCfg, err := config.ImportFrom(in)
+			if err != nil {
+				color.Red("导入失败: %v", err)
+				continue
+			}
+
+			fmt.Println()
+			color.Cyan("导入文件解析结果:")
+			fmt.Printf("  swag-dir: %s\n", newCfg.SwagDir)
+			fmt.Printf("  swag-container: %s\n", newCfg.SwagContainer)
+			fmt.Printf("  network: %s\n", newCfg.Network)
+			fmt.Println()
+
+			ok := false
+			confirm := &survey.Confirm{
+				Message: "确认导入并覆盖本机配置吗？",
+				Default: false,
+			}
+			if err := survey.AskOne(confirm, &ok); err != nil {
+				continue
+			}
+			if !ok {
+				color.Yellow("已取消导入")
+				continue
+			}
+
+			backupPath, err := backupCurrentConfigForTUI()
+			if err != nil {
+				color.Red("备份当前配置失败: %v", err)
+				continue
+			}
+			if backupPath != "" {
+				color.Cyan("已备份当前配置到: %s", backupPath)
+			}
+
+			if err := config.Save(newCfg); err != nil {
+				color.Red("保存配置失败: %v", err)
+				continue
+			}
+
+			color.Green("导入完成")
+		case "返回主菜单 (Back)":
+			return
+		}
+	}
+}
+
+func defaultExportPathForTUI() string {
+	name := fmt.Sprintf("swag-cli.config.%s.json", time.Now().Format("20060102-150405"))
+
+	home, err := os.UserHomeDir()
+	if err == nil {
+		desktop := filepath.Join(home, "Desktop")
+		if st, err := os.Stat(desktop); err == nil && st.IsDir() {
+			return filepath.Join(desktop, name)
+		}
+	}
+
+	return filepath.Join(".", name)
+}
+
+func backupCurrentConfigForTUI() (string, error) {
+	p, err := config.Path()
+	if err != nil {
+		return "", err
+	}
+
+	b, err := os.ReadFile(p)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+
+	backup := fmt.Sprintf("%s.bak-%s", p, time.Now().Format("20060102-150405"))
+	if err := os.WriteFile(backup, b, 0o644); err != nil {
+		return "", err
+	}
+	return backup, nil
 }
 
 func runAddFlow(swagDir string, swagContainerName string, network string) {
@@ -220,9 +377,9 @@ func runHomepageFlow(swagDir string, swagContainerName string, network string) {
 	selectedContainer := containerMap[selectedLabel]
 
 	var answers struct {
-		Domain    string
-		Port      int
-		Protocol  string
+		Domain         string
+		Port           int
+		Protocol       string
 		KeepUnderscore bool
 	}
 
