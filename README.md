@@ -75,6 +75,26 @@ swag-cli config import ./swag-cli.config.json
 swag-cli config import -y ./swag-cli.config.json
 ```
 
+你也可以导出 **SWAG 容器目录下的配置文件**（打包为 zip），用于备份或迁移：
+
+```bash
+# 导出 SWAG 配置（默认 profile=standard，输出到当前目录带时间戳文件名）
+swag-cli swag export
+
+# 指定输出文件
+swag-cli swag export --out ./swag-export.zip
+
+# 全量导出（包含 dns-conf/keys/letsencrypt 等敏感内容，需要显式开启）
+swag-cli swag export --profile full --include-secrets --out ./swag-full.zip
+
+# 额外排除某些文件/目录（支持 ** 通配）
+swag-cli swag export --exclude-glob "config/nginx/nginx.conf"
+```
+
+说明：
+- `proxy-confs` 只导出 `.conf` / `.conf.disabled`，并排除 `*.conf.sample` 以及包含 `sample/example` 的文件（不会把示例配置打进备份包）。
+- zip 内会包含 `swag-cli-manifest.json`，用于记录导出档位、过滤规则与最终文件清单。
+
 ### 2. 交互模式 (TUI)
 
 直接运行命令不带参数，即可进入交互式向导模式：
