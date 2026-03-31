@@ -46,6 +46,27 @@ func Run(swagDir string, swagContainerName string, network string, version strin
 	}
 }
 
+func loadRuntimeConfig(swagDir string, swagContainerName string, network string) (config.Config, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return config.Config{}, err
+	}
+	return mergeRuntimeConfig(cfg, swagDir, swagContainerName, network), nil
+}
+
+func mergeRuntimeConfig(cfg config.Config, swagDir string, swagContainerName string, network string) config.Config {
+	if v := strings.TrimSpace(swagDir); v != "" {
+		cfg.SwagDir = v
+	}
+	if v := strings.TrimSpace(swagContainerName); v != "" {
+		cfg.SwagContainer = v
+	}
+	if v := strings.TrimSpace(network); v != "" {
+		cfg.Network = v
+	}
+	return cfg
+}
+
 func runConfigFlow() {
 	for {
 		action := ""
@@ -200,17 +221,13 @@ func backupCurrentConfigForTUI() (string, error) {
 }
 
 func runAddFlow(swagDir string, swagContainerName string, network string) {
-	// 1. 加载配置以获取 swag 容器名称
-	cfg, err := config.Load()
+	cfg, err := loadRuntimeConfig(swagDir, swagContainerName, network)
 	if err != nil {
 		color.Red("加载配置失败: %v", err)
 		return
 	}
-
-	// 使用配置中的 swag 容器名称，如果参数传入的为空
-	if swagContainerName == "" {
-		swagContainerName = cfg.SwagContainer
-	}
+	swagContainerName = cfg.SwagContainer
+	network = cfg.Network
 
 	// 2. 获取容器列表
 	cli, err := docker.NewClient()
@@ -325,18 +342,14 @@ func runAddFlow(swagDir string, swagContainerName string, network string) {
 }
 
 func runHomepageFlow(swagDir string, swagContainerName string, network string) {
-	cfg, err := config.Load()
+	cfg, err := loadRuntimeConfig(swagDir, swagContainerName, network)
 	if err != nil {
 		color.Red("加载配置失败: %v", err)
 		return
 	}
-
-	if swagContainerName == "" {
-		swagContainerName = cfg.SwagContainer
-	}
-	if swagDir == "" {
-		swagDir = cfg.SwagDir
-	}
+	swagDir = cfg.SwagDir
+	swagContainerName = cfg.SwagContainer
+	network = cfg.Network
 
 	cli, err := docker.NewClient()
 	if err != nil {
@@ -461,8 +474,16 @@ func runHomepageFlow(swagDir string, swagContainerName string, network string) {
 }
 
 func runListFlow(swagDir string, swagContainerName string, network string) {
+	cfg, err := loadRuntimeConfig(swagDir, swagContainerName, network)
+	if err != nil {
+		color.Red("加载配置失败: %v", err)
+		return
+	}
+	swagDir = cfg.SwagDir
+	swagContainerName = cfg.SwagContainer
+	network = cfg.Network
+
 	for {
-		cfg := config.Config{SwagDir: swagDir}
 		manager := nginx.NewManager(cfg.ProxyConfsDir())
 		sites, err := manager.ListSites()
 		if err != nil {
