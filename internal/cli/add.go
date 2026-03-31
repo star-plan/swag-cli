@@ -1,10 +1,8 @@
 package cli
 
 import (
-	"context"
 	"os"
 	"swag-cli/internal/config"
-	"swag-cli/internal/docker"
 	"swag-cli/internal/nginx"
 
 	"github.com/fatih/color"
@@ -59,20 +57,7 @@ var addCmd = &cobra.Command{
 
 		color.Green("成功生成配置文件: %s", path)
 
-		// 触发 Nginx reload
-		swagContainer, _ := cmd.Flags().GetString("swag-container")
-		client, err := docker.NewClient()
-		if err == nil {
-			color.Yellow("正在重载 SWAG (%s) Nginx...", swagContainer)
-			if err := client.ReloadNginx(context.Background(), swagContainer); err != nil {
-				color.Red("Nginx 重载失败: %v", err)
-				// 不退出，因为配置已生成
-			} else {
-				color.Green("Nginx 重载成功！站点应已生效。")
-			}
-		} else {
-			color.Yellow("无法连接 Docker，跳过 Nginx 重载: %v", err)
-		}
+		restartSwagContainer(cmd)
 	},
 }
 

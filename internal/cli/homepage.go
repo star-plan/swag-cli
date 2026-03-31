@@ -66,7 +66,7 @@ var homepageSetCmd = &cobra.Command{
 		}
 		color.Green("已更新: %s", defaultPath)
 
-		reloadSwagNginx(cmd)
+		restartSwagContainer(cmd)
 	},
 }
 
@@ -109,24 +109,29 @@ var homepageClearCmd = &cobra.Command{
 		}
 		color.Green("已更新: %s", defaultPath)
 
-		reloadSwagNginx(cmd)
+		restartSwagContainer(cmd)
 	},
 }
 
-func reloadSwagNginx(cmd *cobra.Command) {
+func restartSwagContainer(cmd *cobra.Command) {
 	swagContainer, _ := cmd.Flags().GetString("swag-container")
+	if swagContainer == "" {
+		color.Yellow("未配置 SWAG 容器名称，跳过自动重启。可使用 --swag-container 或先执行 swag-cli config set swag-container <name>")
+		return
+	}
+
 	client, err := docker.NewClient()
 	if err != nil {
-		color.Yellow("无法连接 Docker，跳过 Nginx reload: %v", err)
+		color.Yellow("无法连接 Docker，跳过自动重启: %v", err)
 		return
 	}
-	color.Yellow("正在重载 SWAG (%s) Nginx...", swagContainer)
-	if err := client.ReloadNginx(context.Background(), swagContainer); err != nil {
-		color.Red("Nginx 重载失败: %v", err)
-		color.Yellow("可尝试执行: swag-cli reload (重启容器) 以应用配置。")
+
+	color.Yellow("正在重启 SWAG 容器 (%s)...", swagContainer)
+	if err := client.RestartContainer(context.Background(), swagContainer); err != nil {
+		color.Red("SWAG 容器重启失败: %v", err)
 		return
 	}
-	color.Green("Nginx 重载成功！")
+	color.Green("SWAG 容器重启成功！配置应已生效。")
 }
 
 func init() {
@@ -145,4 +150,3 @@ func init() {
 	homepageCmd.AddCommand(homepageClearCmd)
 	rootCmd.AddCommand(homepageCmd)
 }
-

@@ -45,6 +45,7 @@ type SiteConfig struct {
 	TargetDest    string     // 目标值 (容器名, IP, 路径等)
 	ContainerName string     // (Legacy) 兼容旧代码，同 TargetDest (如果是容器)
 	ContainerPort string     // 代理指向的端口 (从配置中解析)
+	UpstreamProto string     // 代理协议 (从配置中解析)
 }
 
 // Manager 管理 Nginx 配置文件
@@ -120,9 +121,10 @@ func (m *Manager) parseConfigDetails(config *SiteConfig) {
 	// 简单的正则匹配
 	reApp := regexp.MustCompile(`set\s+\$upstream_app\s+([^;]+);`)
 	rePort := regexp.MustCompile(`set\s+\$upstream_port\s+([^;]+);`)
+	reProto := regexp.MustCompile(`set\s+\$upstream_proto\s+([^;]+);`)
 	reRoot := regexp.MustCompile(`^\s*root\s+([^;]+);`)
 
-	var upstreamApp, upstreamPort, rootPath string
+	var upstreamApp, upstreamPort, upstreamProto, rootPath string
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -137,16 +139,23 @@ func (m *Manager) parseConfigDetails(config *SiteConfig) {
 		if matches := rePort.FindStringSubmatch(line); len(matches) > 1 {
 			upstreamPort = strings.TrimSpace(matches[1])
 		}
+		if matches := reProto.FindStringSubmatch(line); len(matches) > 1 {
+			upstreamProto = strings.TrimSpace(matches[1])
+		}
 		if matches := reRoot.FindStringSubmatch(line); len(matches) > 1 {
 			rootPath = strings.TrimSpace(matches[1])
 		}
 	}
 
 	config.ContainerPort = upstreamPort
+	config.UpstreamProto = upstreamProto
 
 	// 判定 TargetType
 	if upstreamApp != "" {
 		config.TargetDest = upstreamApp
+		if config.UpstreamProto == "" {
+			config.UpstreamProto = "http"
+		}
 		// 简单启发式判断是否为IP (包含点且第一位是数字)
 		if isLikelyIP(upstreamApp) {
 			config.TargetType = TargetIP
@@ -196,14 +205,15 @@ func (m *Manager) ToggleSite(subdomain string) (SiteStatus, error) {
 	oldPath := filepath.Join(m.BasePath, target.Filename)
 	var newFilename string
 	var newStatus SiteStatus
+	suffix := siteConfigSuffix(target.Type)
 
 	if target.Status == StatusEnabled {
 		// Disable it
-		newFilename = target.Name + ".subdomain.conf.disabled"
+		newFilename = target.Name + suffix + ".disabled"
 		newStatus = StatusDisabled
 	} else {
 		// Enable it
-		newFilename = target.Name + ".subdomain.conf"
+		newFilename = target.Name + suffix
 		newStatus = StatusEnabled
 	}
 
@@ -213,6 +223,15 @@ func (m *Manager) ToggleSite(subdomain string) (SiteStatus, error) {
 	}
 
 	return newStatus, nil
+}
+
+func siteConfigSuffix(siteType SiteType) string {
+	switch siteType {
+	case TypeSubfolder:
+		return ".subfolder.conf"
+	default:
+		return ".subdomain.conf"
+	}
 }
 
 // DeleteSite 删除站点配置

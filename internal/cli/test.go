@@ -74,10 +74,16 @@ var testCmd = &cobra.Command{
 
 			// Internal Check (Swag -> Target)
 			internalStatus := "-"
+			targetDisplay := site.TargetDest + ":" + site.ContainerPort
 			if dockerClient != nil && (site.TargetType == nginx.TargetContainer || site.TargetType == nginx.TargetIP) {
+				upstreamProto := site.UpstreamProto
+				if upstreamProto == "" {
+					upstreamProto = "http"
+				}
 				// site.TargetDest is the container name or IP
 				// site.ContainerPort is the port
-				targetURL := fmt.Sprintf("http://%s:%s", site.TargetDest, site.ContainerPort)
+				targetURL := fmt.Sprintf("%s://%s:%s", upstreamProto, site.TargetDest, site.ContainerPort)
+				targetDisplay = targetURL
 
 				// Using curl -I to fetch headers only, -m 5 for timeout
 				cmd := []string{"curl", "-I", "-m", "5", targetURL}
@@ -116,7 +122,7 @@ var testCmd = &cobra.Command{
 
 			fmt.Printf("%-20s | %-30s | %-20s | %-25s\n",
 				site.Name,
-				site.TargetDest+":"+site.ContainerPort,
+				targetDisplay,
 				internalStatus,
 				externalStatus,
 			)
