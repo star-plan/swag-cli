@@ -38,7 +38,7 @@ func Run(swagDir string, swagContainerName string, network string, version strin
 		case "查看站点列表 (List)":
 			runListFlow(swagDir, swagContainerName, network)
 		case "配置导出/导入 (Config)":
-			runConfigFlow()
+			runConfigFlow(swagDir, swagContainerName, network)
 		case "退出 (Exit)":
 			os.Exit(0)
 		}
@@ -67,7 +67,7 @@ func mergeRuntimeConfig(cfg config.Config, swagDir string, swagContainerName str
 	return cfg
 }
 
-func runConfigFlow() {
+func runConfigFlow(swagDir string, swagContainerName string, network string) {
 	for {
 		action := ""
 		prompt := &survey.Select{
@@ -80,16 +80,24 @@ func runConfigFlow() {
 
 		switch action {
 		case "查看当前配置 (Show)":
-			cfg, err := config.Load()
+			persistedCfg, err := config.Load()
 			if err != nil {
 				color.Red("加载配置失败: %v", err)
 				continue
 			}
+			effectiveCfg := mergeRuntimeConfig(persistedCfg, swagDir, swagContainerName, network)
 			fmt.Println()
-			color.Cyan("当前 swag-cli 全局配置:")
-			fmt.Printf("  swag-dir: %s\n", cfg.SwagDir)
-			fmt.Printf("  swag-container: %s\n", cfg.SwagContainer)
-			fmt.Printf("  network: %s\n", cfg.Network)
+			color.Cyan("当前会话生效配置:")
+			fmt.Printf("  swag-dir: %s\n", effectiveCfg.SwagDir)
+			fmt.Printf("  swag-container: %s\n", effectiveCfg.SwagContainer)
+			fmt.Printf("  network: %s\n", effectiveCfg.Network)
+			if effectiveCfg != persistedCfg {
+				fmt.Println()
+				color.Cyan("已保存的全局配置:")
+				fmt.Printf("  swag-dir: %s\n", persistedCfg.SwagDir)
+				fmt.Printf("  swag-container: %s\n", persistedCfg.SwagContainer)
+				fmt.Printf("  network: %s\n", persistedCfg.Network)
+			}
 			fmt.Println()
 		case "导出配置 (Export)":
 			cfg, err := config.Load()
