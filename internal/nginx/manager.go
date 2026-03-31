@@ -3,6 +3,7 @@ package nginx
 import (
 	"bufio"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -23,6 +24,7 @@ type SiteType string
 const (
 	TypeSubdomain SiteType = "Subdomain"
 	TypeSubfolder SiteType = "Subfolder"
+	TypeHomepage  SiteType = "Homepage"
 )
 
 // TargetType 表示代理目标类型
@@ -106,6 +108,10 @@ func (m *Manager) ListSites() ([]SiteConfig, error) {
 		m.parseConfigDetails(&config)
 		sites = append(sites, config)
 	}
+
+	if homepage := m.readHomepageSite(); homepage != nil {
+		sites = append(sites, *homepage)
+	}
 	return sites, nil
 }
 
@@ -172,12 +178,100 @@ func (m *Manager) parseConfigDetails(config *SiteConfig) {
 	}
 }
 
-func isLikelyIP(s string) bool {
-	if strings.Count(s, ".") == 3 {
-		return true
+func (m *Manager) readHomepageSite() *SiteConfig {
+	defaultPath, err := m.defaultSiteConfPath()
+	if err != nil {
+		return nil
 	}
-	// TODO: 更严谨的IP检测，这里暂时简单处理
-	return false
+
+	content, err := os.ReadFile(defaultPath)
+	if err != nil {
+		return nil
+	}
+
+	site := SiteConfig{
+		Name:     "(homepage)",
+		Type:     TypeHomepage,
+		Filename: filepath.Base(defaultPath),
+		Status:   StatusEnabled,
+	}
+	if !parseHomepageDetails(string(content), &site) {
+		return nil
+	}
+	return &site
+}
+
+func (m *Manager) defaultSiteConfPath() (string, error) {
+	nginxDir := filepath.Dir(m.BasePath)
+	candidates := []string{
+		filepath.Join(nginxDir, "site-confs", "default"),
+		filepath.Join(nginxDir, "site-conf", "default"),
+	}
+
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		}
+	}
+
+	return "", os.ErrNotExist
+}
+
+func parseHomepageDetails(content string, site *SiteConfig) bool {
+	if site == nil {
+		return false
+	}
+
+	reApp := regexp.MustCompile(`set\s+\$upstream_app\s+([^;]+);`)
+	rePort := regexp.MustCompile(`set\s+\$upstream_port\s+([^;]+);`)
+	reProto := regexp.MustCompile(`set\s+\$upstream_proto\s+([^;]+);`)
+	reServerName := regexp.MustCompile(`^\s*server_name\s+([^;]+);`)
+
+	var serverName string
+	for _, rawLine := range strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		if matches := reApp.FindStringSubmatch(line); len(matches) > 1 {
+			site.TargetDest = strings.TrimSpace(matches[1])
+			site.ContainerName = site.TargetDest
+		}
+		if matches := rePort.FindStringSubmatch(line); len(matches) > 1 {
+			site.ContainerPort = strings.TrimSpace(matches[1])
+		}
+		if matches := reProto.FindStringSubmatch(line); len(matches) > 1 {
+			site.UpstreamProto = strings.TrimSpace(matches[1])
+		}
+		if matches := reServerName.FindStringSubmatch(line); len(matches) > 1 {
+			serverName = strings.TrimSpace(matches[1])
+		}
+	}
+
+	if site.TargetDest == "" {
+		return false
+	}
+	if site.UpstreamProto == "" {
+		site.UpstreamProto = "http"
+	}
+	if isLikelyIP(site.TargetDest) {
+		site.TargetType = TargetIP
+	} else {
+		site.TargetType = TargetContainer
+	}
+	if serverName != "" && serverName != "_" {
+		site.Name = serverName
+	}
+
+	return true
+}
+
+func isLikelyIP(s string) bool {
+	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, "[")
+	s = strings.TrimSuffix(s, "]")
+	return net.ParseIP(s) != nil
 }
 
 // ToggleSite 切换站点状态
@@ -200,6 +294,9 @@ func (m *Manager) ToggleSite(subdomain string) (SiteStatus, error) {
 
 	if target == nil {
 		return "", fmt.Errorf("site not found: %s", subdomain)
+	}
+	if target.Type == TypeHomepage {
+		return "", fmt.Errorf("homepage is managed via 'swag-cli homepage set/clear'")
 	}
 
 	oldPath := filepath.Join(m.BasePath, target.Filename)
@@ -251,6 +348,9 @@ func (m *Manager) DeleteSite(subdomain string) error {
 
 	if target == nil {
 		return fmt.Errorf("site not found: %s", subdomain)
+	}
+	if target.Type == TypeHomepage {
+		return fmt.Errorf("homepage is managed via 'swag-cli homepage set/clear'")
 	}
 
 	filePath := filepath.Join(m.BasePath, target.Filename)

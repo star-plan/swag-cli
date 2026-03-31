@@ -74,17 +74,12 @@ var testCmd = &cobra.Command{
 
 			// Internal Check (Swag -> Target)
 			internalStatus := "-"
-			targetDisplay := site.TargetDest + ":" + site.ContainerPort
+			targetURL := internalTargetURL(site)
+			targetDisplay := targetURL
+			if targetDisplay == "" {
+				targetDisplay = site.TargetDest
+			}
 			if dockerClient != nil && (site.TargetType == nginx.TargetContainer || site.TargetType == nginx.TargetIP) {
-				upstreamProto := site.UpstreamProto
-				if upstreamProto == "" {
-					upstreamProto = "http"
-				}
-				// site.TargetDest is the container name or IP
-				// site.ContainerPort is the port
-				targetURL := fmt.Sprintf("%s://%s:%s", upstreamProto, site.TargetDest, site.ContainerPort)
-				targetDisplay = targetURL
-
 				// Using curl -I to fetch headers only, -m 5 for timeout
 				cmd := []string{"curl", "-I", "-m", "5", targetURL}
 				_, err := dockerClient.Exec(context.Background(), swagContainer, cmd)
@@ -116,6 +111,20 @@ var testCmd = &cobra.Command{
 				} else {
 					externalStatus = color.RedString("FAIL (Unreachable)")
 				}
+			} else if baseDomain != "" && site.Type == nginx.TypeHomepage {
+				fullURL := fmt.Sprintf("https://%s", baseDomain)
+
+				resp, err := httpClient.Get(fullURL)
+				if err == nil {
+					if resp.StatusCode >= 200 && resp.StatusCode < 500 {
+						externalStatus = color.GreenString("PASS (%d)", resp.StatusCode)
+					} else {
+						externalStatus = color.RedString("FAIL (%d)", resp.StatusCode)
+					}
+					resp.Body.Close()
+				} else {
+					externalStatus = color.RedString("FAIL (Unreachable)")
+				}
 			} else {
 				externalStatus = color.YellowString("? (No Domain)")
 			}
@@ -128,6 +137,37 @@ var testCmd = &cobra.Command{
 			)
 		}
 	},
+}
+
+func internalTargetURL(site nginx.SiteConfig) string {
+	if strings.TrimSpace(site.TargetDest) == "" {
+		return ""
+	}
+
+	proto := strings.TrimSpace(site.UpstreamProto)
+	if proto == "" {
+		proto = "http"
+	}
+
+	port := strings.TrimSpace(site.ContainerPort)
+	if port == "" {
+		port = defaultPortForProto(proto)
+	}
+
+	if port == "" {
+		return fmt.Sprintf("%s://%s", proto, site.TargetDest)
+	}
+
+	return fmt.Sprintf("%s://%s:%s", proto, site.TargetDest, port)
+}
+
+func defaultPortForProto(proto string) string {
+	switch strings.ToLower(strings.TrimSpace(proto)) {
+	case "https":
+		return "443"
+	default:
+		return "80"
+	}
 }
 
 func init() {

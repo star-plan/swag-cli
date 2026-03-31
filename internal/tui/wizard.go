@@ -616,12 +616,16 @@ func runSiteActionFlow(site nginx.SiteConfig, manager *nginx.Manager, swagContai
 
 	action := ""
 	options := []string{"返回 (Back)"}
-	if site.Status == nginx.StatusEnabled {
+	if site.Type == nginx.TypeHomepage {
+		color.Yellow("主页根域名入口请使用 homepage set/clear 管理。")
+	} else if site.Status == nginx.StatusEnabled {
 		options = append(options, "禁用站点 (Disable)")
 	} else {
 		options = append(options, "启用站点 (Enable)")
 	}
-	options = append(options, "删除站点 (Delete)")
+	if site.Type != nginx.TypeHomepage {
+		options = append(options, "删除站点 (Delete)")
+	}
 
 	prompt := &survey.Select{
 		Message: "请选择操作:",
