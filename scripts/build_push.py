@@ -40,7 +40,7 @@ DEFAULTS = {
     "TARGET_OS": "linux",
     "TARGET_ARCH": "amd64",
     "EXECUTABLE_NAME": "swag-cli",
-    'REMOTE_HOST': 'andar',
+    'REMOTE_HOST': 'deali.cn',
     'REMOTE_TEMP_PATH': '/tmp',
     'REMOTE_INSTALL_PATH': '/usr/local/bin',
     "ENABLED_DEPLOY": True,
@@ -197,11 +197,11 @@ def build_project(version: str, progress: ProgressDisplay) -> str:
     os_name = str(get_config('TARGET_OS'))
     arch = str(get_config('TARGET_ARCH'))
     exe_name = str(get_config('EXECUTABLE_NAME'))
-    
+
     # 创建 build 目录
     if not os.path.exists('build'):
         os.makedirs('build')
-        
+
     output_path = os.path.join("build", exe_name)
     # 如果是 Windows 目标，加上 .exe 后缀
     if os_name == "windows" and not output_path.endswith(".exe"):
@@ -212,7 +212,7 @@ def build_project(version: str, progress: ProgressDisplay) -> str:
     env['GOOS'] = os_name
     env['GOARCH'] = arch
     env['CGO_ENABLED'] = '0' # 静态编译
-    
+
     # 编译命令
     cmd = (
         f'go build '
@@ -220,15 +220,15 @@ def build_project(version: str, progress: ProgressDisplay) -> str:
         f'-o {output_path} '
         f'./cmd/swag-cli'
     )
-    
+
     progress.set_status(f"正在编译 ({os_name}/{arch}) -> {output_path}...")
     run_cmd(cmd, progress, env=env)
-    
+
     # 检查文件是否生成
     if not os.path.exists(output_path):
         progress.finish_step("❌ 编译失败: 未找到输出文件")
         sys.exit(1)
-        
+
     return output_path
 
 
@@ -239,26 +239,26 @@ def deploy_to_remote(local_path: str, progress: ProgressDisplay) -> None:
     remote_install = str(get_config('REMOTE_INSTALL_PATH'))
     use_ssh_tty = bool(get_config('USE_SSH_TTY'))
     sudo_nopasswd = bool(get_config('SUDO_NOPASSWD'))
-    
+
     filename = os.path.basename(local_path)
     remote_temp_file = f"{remote_temp}/{filename}"
     remote_target_file = f"{remote_install}/{filename}"
-    
+
     # 1. SCP 上传到临时目录
     progress.set_status(f"📤 正在上传文件到 {host}:{remote_temp_file}...")
     scp_cmd = f"scp {local_path} {host}:{remote_temp_file}"
     run_cmd(scp_cmd, progress)
-    
+
     # 2. 移动到安装目录并赋予权限
     progress.set_status(f"🔧 正在安装到 {remote_target_file}...")
-    
+
     # 根据配置决定是否使用 -t 参数
     # 如果sudo已配置NOPASSWD，不需要TTY
     # 如果sudo需要密码且用户启用了USE_SSH_TTY，则使用 -t
     ssh_flags = ""
     if not sudo_nopasswd and use_ssh_tty:
         ssh_flags = "-t"
-    
+
     # 使用 sudo 移动文件并设置权限
     install_cmd = (
         f'ssh {ssh_flags} {host} "sudo mv {remote_temp_file} {remote_target_file} && '
