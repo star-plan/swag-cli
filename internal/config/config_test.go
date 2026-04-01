@@ -88,3 +88,86 @@ func TestExportToImportFromRoundTrip(t *testing.T) {
 	}
 }
 
+func TestDefaultSiteConfPathPrefersSiteConfs(t *testing.T) {
+	t.Parallel()
+
+	baseDir := t.TempDir()
+	primary := filepath.Join(baseDir, "config", "nginx", "site-confs", "default")
+	legacy := filepath.Join(baseDir, "config", "nginx", "site-conf", "default")
+	if err := os.MkdirAll(filepath.Dir(primary), 0o755); err != nil {
+		t.Fatalf("mkdir primary error = %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(legacy), 0o755); err != nil {
+		t.Fatalf("mkdir legacy error = %v", err)
+	}
+	if err := os.WriteFile(primary, []byte("primary"), 0o644); err != nil {
+		t.Fatalf("write primary error = %v", err)
+	}
+	if err := os.WriteFile(legacy, []byte("legacy"), 0o644); err != nil {
+		t.Fatalf("write legacy error = %v", err)
+	}
+
+	cfg := Config{SwagDir: baseDir}
+	got, err := cfg.DefaultSiteConfPath()
+	if err != nil {
+		t.Fatalf("DefaultSiteConfPath() error = %v", err)
+	}
+	if got != primary {
+		t.Fatalf("DefaultSiteConfPath() = %s, want %s", got, primary)
+	}
+}
+
+func TestDefaultSiteConfPathFallsBackToLegacySiteConf(t *testing.T) {
+	t.Parallel()
+
+	baseDir := t.TempDir()
+	legacy := filepath.Join(baseDir, "config", "nginx", "site-conf", "default")
+	if err := os.MkdirAll(filepath.Dir(legacy), 0o755); err != nil {
+		t.Fatalf("mkdir legacy error = %v", err)
+	}
+	if err := os.WriteFile(legacy, []byte("legacy"), 0o644); err != nil {
+		t.Fatalf("write legacy error = %v", err)
+	}
+
+	cfg := Config{SwagDir: baseDir}
+	got, err := cfg.DefaultSiteConfPath()
+	if err != nil {
+		t.Fatalf("DefaultSiteConfPath() error = %v", err)
+	}
+	if got != legacy {
+		t.Fatalf("DefaultSiteConfPath() = %s, want %s", got, legacy)
+	}
+}
+
+func TestSetAndGetNormalizeKeysAndValues(t *testing.T) {
+	t.Parallel()
+
+	cfg := Default()
+	if err := Set(&cfg, " SwAg-CoNtAiNeR ", "  my-swag  "); err != nil {
+		t.Fatalf("Set() error = %v", err)
+	}
+
+	got, ok := Get(cfg, "swag-container")
+	if !ok {
+		t.Fatalf("Get() should recognize normalized key")
+	}
+	if got != "my-swag" {
+		t.Fatalf("Get() = %q, want %q", got, "my-swag")
+	}
+}
+
+func TestProxyConfsDirExpandsHomePath(t *testing.T) {
+	t.Parallel()
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("UserHomeDir() error = %v", err)
+	}
+
+	cfg := Config{SwagDir: "~"}
+	got := cfg.ProxyConfsDir()
+	want := filepath.Join(home, "config", "nginx", "proxy-confs")
+	if got != want {
+		t.Fatalf("ProxyConfsDir() = %s, want %s", got, want)
+	}
+}

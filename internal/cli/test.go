@@ -17,12 +17,17 @@ import (
 )
 
 var testCmd = &cobra.Command{
-	Use:   "test",
+	Use:   "test [site]",
 	Short: "Tests connectivity for configured sites",
 	Long:  `Tests both external accessibility (domain resolution) and internal connectivity (swag -> target container).`,
+	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		swagDir, _ := cmd.Flags().GetString("swag-dir")
 		swagContainer, _ := cmd.Flags().GetString("swag-container")
+		siteFilter := ""
+		if len(args) > 0 {
+			siteFilter = strings.TrimSpace(args[0])
+		}
 
 		cfg := config.Config{SwagDir: swagDir}
 		manager := nginx.NewManager(cfg.ProxyConfsDir())
@@ -36,6 +41,11 @@ var testCmd = &cobra.Command{
 		if len(sites) == 0 {
 			color.Yellow("No sites configured (in %s)", cfg.ProxyConfsDir())
 			return
+		}
+		sites = filterSitesByName(sites, siteFilter)
+		if len(sites) == 0 {
+			color.Red("No matching site found for filter: %s", siteFilter)
+			os.Exit(1)
 		}
 
 		dockerClient, err := docker.NewClient()
@@ -58,6 +68,9 @@ var testCmd = &cobra.Command{
 		if baseDomain != "" {
 			fmt.Printf("Base Domain: %s\n", baseDomain)
 		}
+		if siteFilter != "" {
+			fmt.Printf("Filter: %s\n", siteFilter)
+		}
 		fmt.Println("")
 
 		fmt.Printf("%-20s | %-30s | %-20s | %-25s\n", "Name", "Target", "Internal (Swag->)", "External (Curl)")
@@ -66,9 +79,18 @@ var testCmd = &cobra.Command{
 		httpClient := &http.Client{
 			Timeout: 5 * time.Second,
 		}
+		var failureDetails []string
 
 		for _, site := range sites {
 			if site.Status == nginx.StatusDisabled {
+				if siteFilter != "" {
+					fmt.Printf("%-20s | %-30s | %-20s | %-25s\n",
+						site.Name,
+						internalTargetURL(site),
+						color.YellowString("DISABLED"),
+						color.YellowString("DISABLED"),
+					)
+				}
 				continue
 			}
 
@@ -87,6 +109,7 @@ var testCmd = &cobra.Command{
 					internalStatus = color.GreenString("PASS")
 				} else {
 					internalStatus = color.RedString("FAIL")
+					failureDetails = append(failureDetails, fmt.Sprintf("- %s internal check failed (%s): %s", site.Name, targetURL, formatCheckError(err)))
 				}
 			} else if site.TargetType == nginx.TargetStatic {
 				internalStatus = color.CyanString("STATIC")
@@ -106,10 +129,12 @@ var testCmd = &cobra.Command{
 						externalStatus = color.GreenString("PASS (%d)", resp.StatusCode)
 					} else {
 						externalStatus = color.RedString("FAIL (%d)", resp.StatusCode)
+						failureDetails = append(failureDetails, fmt.Sprintf("- %s external check failed (%s): unexpected status %d", site.Name, fullURL, resp.StatusCode))
 					}
 					resp.Body.Close()
 				} else {
 					externalStatus = color.RedString("FAIL (Unreachable)")
+					failureDetails = append(failureDetails, fmt.Sprintf("- %s external check failed (%s): %s", site.Name, fullURL, formatCheckError(err)))
 				}
 			} else if baseDomain != "" && site.Type == nginx.TypeHomepage {
 				fullURL := fmt.Sprintf("https://%s", baseDomain)
@@ -120,10 +145,12 @@ var testCmd = &cobra.Command{
 						externalStatus = color.GreenString("PASS (%d)", resp.StatusCode)
 					} else {
 						externalStatus = color.RedString("FAIL (%d)", resp.StatusCode)
+						failureDetails = append(failureDetails, fmt.Sprintf("- %s external check failed (%s): unexpected status %d", site.Name, fullURL, resp.StatusCode))
 					}
 					resp.Body.Close()
 				} else {
 					externalStatus = color.RedString("FAIL (Unreachable)")
+					failureDetails = append(failureDetails, fmt.Sprintf("- %s external check failed (%s): %s", site.Name, fullURL, formatCheckError(err)))
 				}
 			} else {
 				externalStatus = color.YellowString("? (No Domain)")
@@ -135,6 +162,14 @@ var testCmd = &cobra.Command{
 				internalStatus,
 				externalStatus,
 			)
+		}
+
+		if len(failureDetails) > 0 {
+			fmt.Println("")
+			color.Yellow("Failure details:")
+			for _, detail := range failureDetails {
+				fmt.Println(detail)
+			}
 		}
 	},
 }
@@ -168,6 +203,41 @@ func defaultPortForProto(proto string) string {
 	default:
 		return "80"
 	}
+}
+
+func filterSitesByName(sites []nginx.SiteConfig, filter string) []nginx.SiteConfig {
+	filter = strings.ToLower(strings.TrimSpace(filter))
+	if filter == "" {
+		return sites
+	}
+
+	var filtered []nginx.SiteConfig
+	for _, site := range sites {
+		name := strings.ToLower(strings.TrimSpace(site.Name))
+		if name == filter {
+			filtered = append(filtered, site)
+			continue
+		}
+		if filter == "homepage" && site.Type == nginx.TypeHomepage {
+			filtered = append(filtered, site)
+		}
+	}
+	return filtered
+}
+
+func formatCheckError(err error) string {
+	if err == nil {
+		return ""
+	}
+
+	s := strings.TrimSpace(err.Error())
+	s = strings.ReplaceAll(s, "\r", " ")
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) > 140 {
+		return s[:137] + "..."
+	}
+	return s
 }
 
 func init() {

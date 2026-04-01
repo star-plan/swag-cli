@@ -9,6 +9,7 @@ import (
 	"swag-cli/internal/config"
 	"swag-cli/internal/docker"
 	"swag-cli/internal/nginx"
+	"swag-cli/internal/swagexport"
 	"time"
 
 	"github.com/AlecAivazis/survey/v2"
@@ -26,7 +27,7 @@ func Run(swagDir string, swagContainerName string, network string, version strin
 		action := ""
 		prompt := &survey.Select{
 			Message: "请选择操作:",
-			Options: []string{"添加新站点 (Add)", "设置主页 (Homepage)", "查看站点列表 (List)", "配置导出/导入 (Config)", "退出 (Exit)"},
+			Options: []string{"添加新站点 (Add)", "设置主页 (Homepage)", "查看站点列表 (List)", "重启 SWAG (Reload)", "导出 SWAG 配置 (Export)", "配置导出/导入 (Config)", "退出 (Exit)"},
 		}
 		survey.AskOne(prompt, &action)
 
@@ -37,6 +38,10 @@ func Run(swagDir string, swagContainerName string, network string, version strin
 			runHomepageFlow(swagDir, swagContainerName, network)
 		case "查看站点列表 (List)":
 			runListFlow(swagDir, swagContainerName, network)
+		case "重启 SWAG (Reload)":
+			runReloadFlow(swagDir, swagContainerName, network)
+		case "导出 SWAG 配置 (Export)":
+			runSwagExportFlow(swagDir, swagContainerName, network, version)
 		case "配置导出/导入 (Config)":
 			runConfigFlow(swagDir, swagContainerName, network)
 		case "退出 (Exit)":
@@ -226,6 +231,83 @@ func backupCurrentConfigForTUI() (string, error) {
 		return "", err
 	}
 	return backup, nil
+}
+
+func defaultSwagExportPathForTUI() string {
+	name := fmt.Sprintf("swag-export.%s.zip", time.Now().Format("20060102-150405"))
+	return filepath.Join(".", name)
+}
+
+func runReloadFlow(swagDir string, swagContainerName string, network string) {
+	cfg, err := loadRuntimeConfig(swagDir, swagContainerName, network)
+	if err != nil {
+		color.Red("加载配置失败: %v", err)
+		return
+	}
+	restartSwagContainer(cfg.SwagContainer)
+}
+
+func runSwagExportFlow(swagDir string, swagContainerName string, network string, version string) {
+	cfg, err := loadRuntimeConfig(swagDir, swagContainerName, network)
+	if err != nil {
+		color.Red("加载配置失败: %v", err)
+		return
+	}
+
+	var answers struct {
+		Profile        string
+		IncludeSecrets bool
+		Out            string
+	}
+
+	qs := []*survey.Question{
+		{
+			Name: "Profile",
+			Prompt: &survey.Select{
+				Message: "选择导出档位:",
+				Options: []string{string(swagexport.ProfileStandard), string(swagexport.ProfileMinimal), string(swagexport.ProfileFull)},
+				Default: string(swagexport.ProfileStandard),
+			},
+		},
+		{
+			Name: "Out",
+			Prompt: &survey.Input{
+				Message: "导出 zip 路径:",
+				Default: defaultSwagExportPathForTUI(),
+			},
+			Validate: survey.Required,
+		},
+	}
+	if err := survey.Ask(qs, &answers); err != nil {
+		return
+	}
+
+	if answers.Profile == string(swagexport.ProfileFull) {
+		confirm := &survey.Confirm{
+			Message: "full 档位是否包含敏感内容（dns-conf/keys/letsencrypt）？",
+			Default: false,
+		}
+		if err := survey.AskOne(confirm, &answers.IncludeSecrets); err != nil {
+			return
+		}
+	}
+
+	res, err := swagexport.Export(swagexport.Options{
+		SwagDir:        cfg.SwagDir,
+		OutPath:        filepath.Clean(strings.TrimSpace(answers.Out)),
+		Profile:        swagexport.Profile(strings.ToLower(strings.TrimSpace(answers.Profile))),
+		IncludeSecrets: answers.IncludeSecrets,
+		ProxyConfOnly:  true,
+		Version:        version,
+	})
+	if err != nil {
+		color.Red("导出失败: %v", err)
+		return
+	}
+
+	color.Green("导出完成: %s", res.OutPath)
+	color.Cyan("已导出文件数: %d", res.FileCount)
+	color.Cyan("归档内包含 manifest: %s", res.ManifestPath)
 }
 
 func runAddFlow(swagDir string, swagContainerName string, network string) {

@@ -143,8 +143,12 @@ swag-cli list
 **测试连通性**
 ```bash
 swag-cli test
+
+# 只测试单个站点（子域名或 homepage）
+swag-cli test my-app
+swag-cli test homepage
 ```
-*检查内部容器连通性 (SWAG -> 目标容器) 和外部 URL 可访问性。*
+*检查内部容器连通性 (SWAG -> 目标容器) 和外部 URL 可访问性；失败时会额外输出诊断详情。*
 
 **启用/禁用站点**
 ```bash

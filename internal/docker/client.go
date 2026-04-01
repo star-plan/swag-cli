@@ -25,9 +25,20 @@ type ContainerInfo struct {
 	IP       string
 }
 
+type dockerAPI interface {
+	Ping(ctx context.Context) (types.Ping, error)
+	ContainerList(ctx context.Context, options container.ListOptions) ([]types.Container, error)
+	ContainerExecCreate(ctx context.Context, container string, config types.ExecConfig) (types.IDResponse, error)
+	ContainerExecAttach(ctx context.Context, execID string, config types.ExecStartCheck) (types.HijackedResponse, error)
+	ContainerExecInspect(ctx context.Context, execID string) (types.ContainerExecInspect, error)
+	ContainerInspect(ctx context.Context, container string) (types.ContainerJSON, error)
+	ContainerRestart(ctx context.Context, container string, options container.StopOptions) error
+	Close() error
+}
+
 // Client 封装 Docker API 客户端
 type Client struct {
-	cli *client.Client
+	cli dockerAPI
 }
 
 // NewClient 创建一个新的 Docker 客户端
