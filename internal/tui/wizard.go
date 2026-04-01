@@ -359,6 +359,31 @@ func runHomepageFlow(swagDir string, swagContainerName string, network string) {
 	swagContainerName = cfg.SwagContainer
 	network = cfg.Network
 
+	action := ""
+	prompt := &survey.Select{
+		Message: "主页操作:",
+		Options: []string{"设置主页 (Set)", "清理主页 (Clear)", "返回 (Back)"},
+	}
+	if err := survey.AskOne(prompt, &action); err != nil {
+		return
+	}
+	if action == "返回 (Back)" {
+		return
+	}
+
+	siteCfg := config.Config{SwagDir: swagDir}
+	defaultPath, err := siteCfg.DefaultSiteConfPath()
+	if err != nil {
+		color.Red("无法定位 default 站点配置文件: %v", err)
+		return
+	}
+
+	editor := nginx.NewDefaultSiteEditor(defaultPath)
+	if action == "清理主页 (Clear)" {
+		runHomepageClearFlow(editor, defaultPath, swagContainerName)
+		return
+	}
+
 	cli, err := docker.NewClient()
 	if err != nil {
 		color.Red("Docker 连接失败: %v", err)
@@ -388,7 +413,7 @@ func runHomepageFlow(swagDir string, swagContainerName string, network string) {
 	}
 
 	selectedLabel := ""
-	prompt := &survey.Select{
+	prompt = &survey.Select{
 		Message: "选择主页目标容器:",
 		Options: options,
 	}
@@ -441,14 +466,6 @@ func runHomepageFlow(swagDir string, swagContainerName string, network string) {
 		return
 	}
 
-	siteCfg := config.Config{SwagDir: swagDir}
-	defaultPath, err := siteCfg.DefaultSiteConfPath()
-	if err != nil {
-		color.Red("无法定位 default 站点配置文件: %v", err)
-		return
-	}
-
-	editor := nginx.NewDefaultSiteEditor(defaultPath)
 	res, err := editor.SetHomepage(nginx.HomepageConfig{
 		Domain:                   answers.Domain,
 		UpstreamApp:              selectedContainer.Name,
@@ -461,6 +478,49 @@ func runHomepageFlow(swagDir string, swagContainerName string, network string) {
 		return
 	}
 
+	applyHomepageEditResult("主页已更新", res, defaultPath, swagContainerName, cli)
+}
+
+func runHomepageClearFlow(editor *nginx.DefaultSiteEditor, defaultPath string, swagContainerName string) {
+	var answers struct {
+		RestoreUnderscore bool
+		Confirm           bool
+	}
+
+	qs := []*survey.Question{
+		{
+			Name: "RestoreUnderscore",
+			Prompt: &survey.Confirm{
+				Message: "清理时是否恢复 server_name 为 '_' ?",
+				Default: true,
+			},
+		},
+		{
+			Name: "Confirm",
+			Prompt: &survey.Confirm{
+				Message: "确认清理当前主页反代吗？",
+				Default: false,
+			},
+		},
+	}
+	if err := survey.Ask(qs, &answers); err != nil {
+		return
+	}
+	if !answers.Confirm {
+		color.Yellow("已取消清理主页。")
+		return
+	}
+
+	res, err := editor.ClearHomepage("", answers.RestoreUnderscore, false)
+	if err != nil {
+		color.Red("清理主页失败: %v", err)
+		return
+	}
+
+	applyHomepageEditResult("主页已清理", res, defaultPath, swagContainerName, nil)
+}
+
+func applyHomepageEditResult(successMessage string, res nginx.EditResult, defaultPath string, swagContainerName string, cli *docker.Client) {
 	if !res.Changed {
 		color.Yellow("未检测到变更，跳过写入。")
 		return
@@ -469,7 +529,16 @@ func runHomepageFlow(swagDir string, swagContainerName string, network string) {
 	if res.BackupPath != "" {
 		color.Cyan("已创建备份: %s", res.BackupPath)
 	}
-	color.Green("主页已更新: %s", defaultPath)
+	color.Green("%s: %s", successMessage, defaultPath)
+
+	if cli == nil {
+		var err error
+		cli, err = docker.NewClient()
+		if err != nil {
+			color.Yellow("Docker 连接失败，无法自动重载: %v", err)
+			return
+		}
+	}
 
 	color.Yellow("正在重载 SWAG (%s) Nginx...", swagContainerName)
 	if err := cli.ReloadNginx(context.Background(), swagContainerName); err != nil {
