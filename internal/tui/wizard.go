@@ -27,24 +27,24 @@ func Run(swagDir string, swagContainerName string, network string, version strin
 		action := ""
 		prompt := &survey.Select{
 			Message: "请选择操作:",
-			Options: []string{"添加新站点 (Add)", "设置主页 (Homepage)", "查看站点列表 (List)", "重启 SWAG (Reload)", "导出 SWAG 配置 (Export)", "配置导出/导入 (Config)", "退出 (Exit)"},
+			Options: mainMenuOptions(),
 		}
 		survey.AskOne(prompt, &action)
 
 		switch action {
-		case "添加新站点 (Add)":
+		case "添加新站点":
 			runAddFlow(swagDir, swagContainerName, network)
-		case "设置主页 (Homepage)":
+		case "设置主页":
 			runHomepageFlow(swagDir, swagContainerName, network)
-		case "查看站点列表 (List)":
+		case "查看站点列表":
 			runListFlow(swagDir, swagContainerName, network)
-		case "重启 SWAG (Reload)":
+		case "重启 SWAG":
 			runReloadFlow(swagDir, swagContainerName, network)
-		case "导出 SWAG 配置 (Export)":
+		case "导出 SWAG 配置":
 			runSwagExportFlow(swagDir, swagContainerName, network, version)
-		case "配置导出/导入 (Config)":
+		case "配置导出/导入":
 			runConfigFlow(swagDir, swagContainerName, network)
-		case "退出 (Exit)":
+		case "退出":
 			os.Exit(0)
 		}
 		fmt.Println()
@@ -57,6 +57,18 @@ func loadRuntimeConfig(swagDir string, swagContainerName string, network string)
 		return config.Config{}, err
 	}
 	return mergeRuntimeConfig(cfg, swagDir, swagContainerName, network), nil
+}
+
+func mainMenuOptions() []string {
+	return []string{
+		"添加新站点",
+		"设置主页",
+		"查看站点列表",
+		"重启 SWAG",
+		"导出 SWAG 配置",
+		"配置导出/导入",
+		"退出",
+	}
 }
 
 func mergeRuntimeConfig(cfg config.Config, swagDir string, swagContainerName string, network string) config.Config {
@@ -77,14 +89,14 @@ func runConfigFlow(swagDir string, swagContainerName string, network string) {
 		action := ""
 		prompt := &survey.Select{
 			Message: "配置导出/导入:",
-			Options: []string{"查看当前配置 (Show)", "导出配置 (Export)", "导入配置 (Import)", "返回主菜单 (Back)"},
+			Options: []string{"查看当前配置", "导出配置", "导入配置", "返回主菜单"},
 		}
 		if err := survey.AskOne(prompt, &action); err != nil {
 			return
 		}
 
 		switch action {
-		case "查看当前配置 (Show)":
+		case "查看当前配置":
 			persistedCfg, err := config.Load()
 			if err != nil {
 				color.Red("加载配置失败: %v", err)
@@ -104,7 +116,7 @@ func runConfigFlow(swagDir string, swagContainerName string, network string) {
 				fmt.Printf("  network: %s\n", persistedCfg.Network)
 			}
 			fmt.Println()
-		case "导出配置 (Export)":
+		case "导出配置":
 			cfg, err := config.Load()
 			if err != nil {
 				color.Red("加载配置失败: %v", err)
@@ -127,7 +139,7 @@ func runConfigFlow(swagDir string, swagContainerName string, network string) {
 			}
 
 			color.Green("已导出到: %s", out)
-		case "导入配置 (Import)":
+		case "导入配置":
 			in := ""
 			prompt := &survey.Input{
 				Message: "导入文件路径:",
@@ -192,7 +204,7 @@ func runConfigFlow(swagDir string, swagContainerName string, network string) {
 			}
 
 			color.Green("导入完成")
-		case "返回主菜单 (Back)":
+		case "返回主菜单":
 			return
 		}
 	}
@@ -444,12 +456,12 @@ func runHomepageFlow(swagDir string, swagContainerName string, network string) {
 	action := ""
 	prompt := &survey.Select{
 		Message: "主页操作:",
-		Options: []string{"设置主页 (Set)", "清理主页 (Clear)", "返回 (Back)"},
+		Options: homepageMenuOptions(),
 	}
 	if err := survey.AskOne(prompt, &action); err != nil {
 		return
 	}
-	if action == "返回 (Back)" {
+	if action == "返回" {
 		return
 	}
 
@@ -461,7 +473,7 @@ func runHomepageFlow(swagDir string, swagContainerName string, network string) {
 	}
 
 	editor := nginx.NewDefaultSiteEditor(defaultPath)
-	if action == "清理主页 (Clear)" {
+	if action == "清理主页" {
 		runHomepageClearFlow(editor, defaultPath, swagContainerName)
 		return
 	}
@@ -731,12 +743,12 @@ func runListFlow(swagDir string, swagContainerName string, network string) {
 			}
 		}
 
-		addSites("容器 (Containers)", containerSites)
-		addSites("静态 (Static)", staticSites)
-		addSites("其他 (Others)", otherSites)
-		addSites("已禁用 (Disabled)", disabledSites)
+		addSites("容器站点", containerSites)
+		addSites("静态站点", staticSites)
+		addSites("其他站点", otherSites)
+		addSites("已禁用站点", disabledSites)
 
-		options = append(options, "返回主菜单 (Back)")
+		options = append(options, "返回主菜单")
 
 		selectedLabel := ""
 		prompt := &survey.Select{
@@ -753,7 +765,7 @@ func runListFlow(swagDir string, swagContainerName string, network string) {
 			continue
 		}
 
-		if selectedLabel == "返回主菜单 (Back)" {
+		if selectedLabel == "返回主菜单" {
 			return
 		}
 
@@ -774,16 +786,9 @@ func runSiteActionFlow(site nginx.SiteConfig, manager *nginx.Manager, swagContai
 	fmt.Println()
 
 	action := ""
-	options := []string{"返回 (Back)"}
+	options := siteActionOptions(site)
 	if site.Type == nginx.TypeHomepage {
 		color.Yellow("主页根域名入口请使用 homepage set/clear 管理。")
-	} else if site.Status == nginx.StatusEnabled {
-		options = append(options, "禁用站点 (Disable)")
-	} else {
-		options = append(options, "启用站点 (Enable)")
-	}
-	if site.Type != nginx.TypeHomepage {
-		options = append(options, "删除站点 (Delete)")
 	}
 
 	prompt := &survey.Select{
@@ -795,9 +800,9 @@ func runSiteActionFlow(site nginx.SiteConfig, manager *nginx.Manager, swagContai
 	}
 
 	switch action {
-	case "返回 (Back)":
+	case "返回":
 		return
-	case "禁用站点 (Disable)", "启用站点 (Enable)":
+	case "禁用站点", "启用站点":
 		status, err := manager.ToggleSite(site.Name)
 		if err != nil {
 			color.Red("操作失败: %v", err)
@@ -809,7 +814,7 @@ func runSiteActionFlow(site nginx.SiteConfig, manager *nginx.Manager, swagContai
 			}
 			restartSwagContainer(swagContainerName)
 		}
-	case "删除站点 (Delete)":
+	case "删除站点":
 		confirm := false
 		prompt := &survey.Confirm{
 			Message: fmt.Sprintf("确定要删除站点 '%s' 吗? (此操作将删除配置文件)", site.Name),
@@ -824,6 +829,24 @@ func runSiteActionFlow(site nginx.SiteConfig, manager *nginx.Manager, swagContai
 			}
 		}
 	}
+}
+
+func homepageMenuOptions() []string {
+	return []string{"设置主页", "清理主页", "返回"}
+}
+
+func siteActionOptions(site nginx.SiteConfig) []string {
+	options := []string{"返回"}
+	if site.Type == nginx.TypeHomepage {
+		return options
+	}
+	if site.Status == nginx.StatusEnabled {
+		options = append(options, "禁用站点")
+	} else {
+		options = append(options, "启用站点")
+	}
+	options = append(options, "删除站点")
+	return options
 }
 
 func restartSwagContainer(swagContainerName string) {

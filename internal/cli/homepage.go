@@ -1,10 +1,8 @@
 package cli
 
 import (
-	"context"
 	"os"
 	"swag-cli/internal/config"
-	"swag-cli/internal/docker"
 	"swag-cli/internal/nginx"
 
 	"github.com/fatih/color"
@@ -39,13 +37,7 @@ var homepageSetCmd = &cobra.Command{
 		}
 
 		editor := nginx.NewDefaultSiteEditor(defaultPath)
-		res, err := editor.SetHomepage(nginx.HomepageConfig{
-			Domain:                   domain,
-			UpstreamApp:              containerName,
-			UpstreamPort:             port,
-			UpstreamProto:            proto,
-			KeepServerNameUnderscore: keepUnderscore,
-		}, dryRun)
+		res, err := editor.SetHomepage(buildHomepageConfig(containerName, domain, port, proto, keepUnderscore), dryRun)
 		if err != nil {
 			color.Red("设置主页失败: %v", err)
 			os.Exit(1)
@@ -120,18 +112,22 @@ func restartSwagContainer(cmd *cobra.Command) {
 		return
 	}
 
-	client, err := docker.NewClient()
-	if err != nil {
-		color.Yellow("无法连接 Docker，跳过自动重启: %v", err)
+	if err := restartSwagContainerByName(swagContainer); err != nil {
+		color.Yellow("%v", err)
 		return
 	}
-
 	color.Yellow("正在重启 SWAG 容器 (%s)...", swagContainer)
-	if err := client.RestartContainer(context.Background(), swagContainer); err != nil {
-		color.Red("SWAG 容器重启失败: %v", err)
-		return
-	}
 	color.Green("SWAG 容器重启成功！配置应已生效。")
+}
+
+func buildHomepageConfig(containerName string, domain string, port int, proto string, keepUnderscore bool) nginx.HomepageConfig {
+	return nginx.HomepageConfig{
+		Domain:                   domain,
+		UpstreamApp:              containerName,
+		UpstreamPort:             port,
+		UpstreamProto:            proto,
+		KeepServerNameUnderscore: keepUnderscore,
+	}
 }
 
 func init() {

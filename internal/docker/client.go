@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,10 +42,19 @@ type Client struct {
 	cli dockerAPI
 }
 
+var (
+	newDockerAPI = func(opts ...client.Opt) (dockerAPI, error) {
+		return client.NewClientWithOpts(opts...)
+	}
+	statPath = func(name string) (fs.FileInfo, error) {
+		return os.Stat(name)
+	}
+)
+
 // NewClient 创建一个新的 Docker 客户端
 func NewClient() (*Client, error) {
 	// 1. 尝试标准连接 (检查 DOCKER_HOST 等环境变量)
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cli, err := newDockerAPI(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, err
 	}
@@ -61,9 +71,9 @@ func NewClient() (*Client, error) {
 	if xdgRuntimeDir := os.Getenv("XDG_RUNTIME_DIR"); xdgRuntimeDir != "" {
 		socketPath := filepath.Join(xdgRuntimeDir, "docker.sock")
 		// 检查 socket 文件是否存在
-		if _, err := os.Stat(socketPath); err == nil {
+		if _, err := statPath(socketPath); err == nil {
 			// 尝试连接该 socket
-			rootlessCli, err := client.NewClientWithOpts(
+			rootlessCli, err := newDockerAPI(
 				client.WithHost("unix://"+socketPath),
 				client.WithAPIVersionNegotiation(),
 			)

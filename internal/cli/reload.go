@@ -1,9 +1,7 @@
 package cli
 
 import (
-	"context"
 	"os"
-	"swag-cli/internal/docker"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
@@ -22,17 +20,8 @@ var reloadCmd = &cobra.Command{
 		}
 
 		color.Blue("正在重启 SWAG 容器: %s ...", swagContainer)
-
-		client, err := docker.NewClient()
-		if err != nil {
-			color.Red("连接 Docker 失败: %v", err)
-			os.Exit(1)
-		}
-
-		// 使用 RestartContainer 而不是 ReloadNginx，因为在某些情况下（如新增子域）需要重启容器才能生效
-		err = client.RestartContainer(context.Background(), swagContainer)
-		if err != nil {
-			color.Red("重启 SWAG 容器失败: %v", err)
+		if err := restartSwagContainerByName(swagContainer); err != nil {
+			color.Red("%v", err)
 			os.Exit(1)
 		}
 

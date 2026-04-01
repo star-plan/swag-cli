@@ -2,6 +2,7 @@ package cli
 
 import (
 	"os"
+	"strings"
 	"swag-cli/internal/config"
 	"swag-cli/internal/nginx"
 
@@ -32,18 +33,9 @@ var addCmd = &cobra.Command{
 			cmd.Usage()
 			os.Exit(1)
 		}
-		if subdomain == "" {
-			// 如果未指定子域名，默认使用容器名
-			subdomain = containerName
-		}
 
 		// 2. 准备数据
-		data := nginx.ConfigData{
-			Subdomain:     subdomain,
-			ContainerName: containerName,
-			ContainerPort: port,
-			Protocol:      proto,
-		}
+		data := buildAddConfigData(containerName, subdomain, port, proto)
 
 		// 3. 生成配置
 		// 解析 proxy-confs 目录路径
@@ -67,4 +59,18 @@ func init() {
 	addCmd.Flags().String("proto", "http", "协议 (http/https)")
 
 	rootCmd.AddCommand(addCmd)
+}
+
+func buildAddConfigData(containerName string, subdomain string, port int, proto string) nginx.ConfigData {
+	subdomain = strings.TrimSpace(subdomain)
+	if subdomain == "" {
+		subdomain = containerName
+	}
+
+	return nginx.ConfigData{
+		Subdomain:     subdomain,
+		ContainerName: containerName,
+		ContainerPort: port,
+		Protocol:      proto,
+	}
 }

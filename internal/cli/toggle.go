@@ -19,7 +19,7 @@ var toggleCmd = &cobra.Command{
 
 		cfg := config.Config{SwagDir: swagDir}
 		manager := nginx.NewManager(cfg.ProxyConfsDir())
-		status, err := manager.ToggleSite(subdomain)
+		status, err := toggleSite(manager, subdomain)
 		if err != nil {
 			color.Red("操作失败: %v", err)
 			os.Exit(1)
@@ -37,4 +37,12 @@ var toggleCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(toggleCmd)
+}
+
+type siteToggler interface {
+	ToggleSite(subdomain string) (nginx.SiteStatus, error)
+}
+
+func toggleSite(manager siteToggler, subdomain string) (nginx.SiteStatus, error) {
+	return manager.ToggleSite(subdomain)
 }

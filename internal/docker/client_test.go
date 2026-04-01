@@ -4,7 +4,11 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
+	"io/fs"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +16,7 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 )
 
@@ -28,6 +33,7 @@ type fakeDockerAPI struct {
 	execAttachErr     error
 	execInspectResp   types.ContainerExecInspect
 	execInspectErr    error
+	closed            bool
 }
 
 func (f *fakeDockerAPI) Ping(ctx context.Context) (types.Ping, error) {
@@ -60,12 +66,11 @@ func (f *fakeDockerAPI) ContainerRestart(ctx context.Context, container string, 
 }
 
 func (f *fakeDockerAPI) Close() error {
+	f.closed = true
 	return nil
 }
 
 func TestListContainersByNetwork(t *testing.T) {
-	t.Parallel()
-
 	api := &fakeDockerAPI{
 		containers: []types.Container{
 			{
@@ -109,8 +114,6 @@ func TestListContainersByNetwork(t *testing.T) {
 }
 
 func TestListContainersByNetworkReturnsErrorWhenEmpty(t *testing.T) {
-	t.Parallel()
-
 	client := &Client{cli: &fakeDockerAPI{}}
 	if _, err := client.ListContainersByNetwork(context.Background(), "swag"); err == nil {
 		t.Fatalf("expected error when no containers matched")
@@ -118,8 +121,6 @@ func TestListContainersByNetworkReturnsErrorWhenEmpty(t *testing.T) {
 }
 
 func TestRestartContainerPassesContainerName(t *testing.T) {
-	t.Parallel()
-
 	api := &fakeDockerAPI{}
 	client := &Client{cli: api}
 	if err := client.RestartContainer(context.Background(), "swag"); err != nil {
@@ -131,8 +132,6 @@ func TestRestartContainerPassesContainerName(t *testing.T) {
 }
 
 func TestExecReturnsStdoutOnSuccess(t *testing.T) {
-	t.Parallel()
-
 	api := &fakeDockerAPI{
 		execCreateResp:  types.IDResponse{ID: "exec-1"},
 		execAttachResp:  newHijackedResponse(t, "hello\n", ""),
@@ -150,8 +149,6 @@ func TestExecReturnsStdoutOnSuccess(t *testing.T) {
 }
 
 func TestReloadNginxReturnsStderrOnFailure(t *testing.T) {
-	t.Parallel()
-
 	api := &fakeDockerAPI{
 		execCreateResp:  types.IDResponse{ID: "exec-1"},
 		execAttachResp:  newHijackedResponse(t, "", "reload failed"),
@@ -165,6 +162,69 @@ func TestReloadNginxReturnsStderrOnFailure(t *testing.T) {
 	}
 	if got := err.Error(); got == "" || !strings.Contains(got, "reload failed") {
 		t.Fatalf("ReloadNginx error = %q, want stderr details", got)
+	}
+}
+
+func TestNewClientFallsBackToRootlessSocket(t *testing.T) {
+	origFactory := newDockerAPI
+	origStat := statPath
+	origRuntime := os.Getenv("XDG_RUNTIME_DIR")
+	defer func() {
+		newDockerAPI = origFactory
+		statPath = origStat
+		_ = os.Setenv("XDG_RUNTIME_DIR", origRuntime)
+	}()
+
+	first := &fakeDockerAPI{containerPingErr: errors.New("permission denied")}
+	second := &fakeDockerAPI{}
+	call := 0
+	newDockerAPI = func(opts ...client.Opt) (dockerAPI, error) {
+		call++
+		if call == 1 {
+			return first, nil
+		}
+		return second, nil
+	}
+	statPath = func(name string) (fs.FileInfo, error) {
+		return dummyFileInfo{name: filepath.Base(name)}, nil
+	}
+
+	runtimeDir := t.TempDir()
+	_ = os.Setenv("XDG_RUNTIME_DIR", runtimeDir)
+
+	got, err := NewClient()
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	if got.cli != second {
+		t.Fatalf("NewClient() should return rootless client")
+	}
+	if !first.closed {
+		t.Fatalf("expected initial client to be closed after rootless fallback")
+	}
+}
+
+func TestNewClientReturnsOriginalPingErrorWhenFallbackUnavailable(t *testing.T) {
+	origFactory := newDockerAPI
+	origStat := statPath
+	origRuntime := os.Getenv("XDG_RUNTIME_DIR")
+	defer func() {
+		newDockerAPI = origFactory
+		statPath = origStat
+		_ = os.Setenv("XDG_RUNTIME_DIR", origRuntime)
+	}()
+
+	first := &fakeDockerAPI{containerPingErr: errors.New("permission denied")}
+	newDockerAPI = func(opts ...client.Opt) (dockerAPI, error) {
+		return first, nil
+	}
+	statPath = func(name string) (fs.FileInfo, error) {
+		return nil, os.ErrNotExist
+	}
+	_ = os.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+
+	if _, err := NewClient(); err == nil || !strings.Contains(err.Error(), "permission denied") {
+		t.Fatalf("NewClient() error = %v, want wrapped original ping error", err)
 	}
 }
 
@@ -183,6 +243,17 @@ type dummyAddr string
 
 func (a dummyAddr) Network() string { return string(a) }
 func (a dummyAddr) String() string  { return string(a) }
+
+type dummyFileInfo struct {
+	name string
+}
+
+func (d dummyFileInfo) Name() string       { return d.name }
+func (d dummyFileInfo) Size() int64        { return 0 }
+func (d dummyFileInfo) Mode() fs.FileMode  { return 0 }
+func (d dummyFileInfo) ModTime() time.Time { return time.Time{} }
+func (d dummyFileInfo) IsDir() bool        { return false }
+func (d dummyFileInfo) Sys() interface{}   { return nil }
 
 func newHijackedResponse(t *testing.T, stdout string, stderr string) types.HijackedResponse {
 	t.Helper()

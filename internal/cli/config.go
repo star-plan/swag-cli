@@ -234,7 +234,10 @@ func formatConfigDiff(oldCfg, newCfg config.Config) string {
 
 func confirm(prompt string) (bool, error) {
 	fmt.Printf("%s (y/N): ", strings.TrimSpace(prompt))
-	reader := bufio.NewReader(os.Stdin)
+	return readConfirmation(bufio.NewReader(os.Stdin))
+}
+
+func readConfirmation(reader *bufio.Reader) (bool, error) {
 	s, err := reader.ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
 		return false, err

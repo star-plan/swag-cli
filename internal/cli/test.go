@@ -18,8 +18,8 @@ import (
 
 var testCmd = &cobra.Command{
 	Use:   "test [site]",
-	Short: "Tests connectivity for configured sites",
-	Long:  `Tests both external accessibility (domain resolution) and internal connectivity (swag -> target container).`,
+	Short: "测试已配置站点的连通性",
+	Long:  `同时测试外部访问链路（域名解析）与内部访问链路（swag -> 目标容器）。`,
 	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		swagDir, _ := cmd.Flags().GetString("swag-dir")
@@ -34,24 +34,24 @@ var testCmd = &cobra.Command{
 
 		sites, err := manager.ListSites()
 		if err != nil {
-			color.Red("Failed to read configuration: %v", err)
+			color.Red("读取配置失败: %v", err)
 			os.Exit(1)
 		}
 
 		if len(sites) == 0 {
-			color.Yellow("No sites configured (in %s)", cfg.ProxyConfsDir())
+			color.Yellow("未发现已配置站点（目录：%s）", cfg.ProxyConfsDir())
 			return
 		}
 		sites = filterSitesByName(sites, siteFilter)
 		if len(sites) == 0 {
-			color.Red("No matching site found for filter: %s", siteFilter)
+			color.Red("未找到匹配筛选条件的站点：%s", siteFilter)
 			os.Exit(1)
 		}
 
 		dockerClient, err := docker.NewClient()
 		var baseDomain string
 		if err != nil {
-			color.Yellow("Warning: Docker client check failed: %v. Internal checks may fail.", err)
+			color.Yellow("警告：Docker 连接检查失败：%v，内部链路检测可能失败。", err)
 		} else {
 			// Try to get URL env from swag container
 			if info, err := dockerClient.InspectContainer(context.Background(), swagContainer); err == nil {
@@ -64,16 +64,16 @@ var testCmd = &cobra.Command{
 			}
 		}
 
-		fmt.Printf("Testing %d sites...\n", len(sites))
+		fmt.Printf("开始测试 %d 个站点...\n", len(sites))
 		if baseDomain != "" {
-			fmt.Printf("Base Domain: %s\n", baseDomain)
+			fmt.Printf("基础域名：%s\n", baseDomain)
 		}
 		if siteFilter != "" {
-			fmt.Printf("Filter: %s\n", siteFilter)
+			fmt.Printf("筛选条件：%s\n", siteFilter)
 		}
 		fmt.Println("")
 
-		fmt.Printf("%-20s | %-30s | %-20s | %-25s\n", "Name", "Target", "Internal (Swag->)", "External (Curl)")
+		fmt.Printf("%-20s | %-30s | %-20s | %-25s\n", "站点", "目标", "内部检测（Swag ->）", "外部检测（Curl）")
 		fmt.Println(strings.Repeat("-", 105))
 
 		httpClient := &http.Client{
@@ -87,8 +87,8 @@ var testCmd = &cobra.Command{
 					fmt.Printf("%-20s | %-30s | %-20s | %-25s\n",
 						site.Name,
 						internalTargetURL(site),
-						color.YellowString("DISABLED"),
-						color.YellowString("DISABLED"),
+						color.YellowString("已禁用"),
+						color.YellowString("已禁用"),
 					)
 				}
 				continue
@@ -106,13 +106,13 @@ var testCmd = &cobra.Command{
 				cmd := []string{"curl", "-I", "-m", "5", targetURL}
 				_, err := dockerClient.Exec(context.Background(), swagContainer, cmd)
 				if err == nil {
-					internalStatus = color.GreenString("PASS")
+					internalStatus = color.GreenString("通过")
 				} else {
-					internalStatus = color.RedString("FAIL")
-					failureDetails = append(failureDetails, fmt.Sprintf("- %s internal check failed (%s): %s", site.Name, targetURL, formatCheckError(err)))
+					internalStatus = color.RedString("失败")
+					failureDetails = append(failureDetails, fmt.Sprintf("- %s 内部检测失败（%s）：%s", site.Name, targetURL, formatCheckError(err)))
 				}
 			} else if site.TargetType == nginx.TargetStatic {
-				internalStatus = color.CyanString("STATIC")
+				internalStatus = color.CyanString("静态内容")
 			}
 
 			// External Check
@@ -126,15 +126,15 @@ var testCmd = &cobra.Command{
 				resp, err := httpClient.Get(fullURL)
 				if err == nil {
 					if resp.StatusCode >= 200 && resp.StatusCode < 500 {
-						externalStatus = color.GreenString("PASS (%d)", resp.StatusCode)
+						externalStatus = color.GreenString("通过（%d）", resp.StatusCode)
 					} else {
-						externalStatus = color.RedString("FAIL (%d)", resp.StatusCode)
-						failureDetails = append(failureDetails, fmt.Sprintf("- %s external check failed (%s): unexpected status %d", site.Name, fullURL, resp.StatusCode))
+						externalStatus = color.RedString("失败（%d）", resp.StatusCode)
+						failureDetails = append(failureDetails, fmt.Sprintf("- %s 外部检测失败（%s）：返回了异常状态码 %d", site.Name, fullURL, resp.StatusCode))
 					}
 					resp.Body.Close()
 				} else {
-					externalStatus = color.RedString("FAIL (Unreachable)")
-					failureDetails = append(failureDetails, fmt.Sprintf("- %s external check failed (%s): %s", site.Name, fullURL, formatCheckError(err)))
+					externalStatus = color.RedString("失败（不可达）")
+					failureDetails = append(failureDetails, fmt.Sprintf("- %s 外部检测失败（%s）：%s", site.Name, fullURL, formatCheckError(err)))
 				}
 			} else if baseDomain != "" && site.Type == nginx.TypeHomepage {
 				fullURL := fmt.Sprintf("https://%s", baseDomain)
@@ -142,18 +142,18 @@ var testCmd = &cobra.Command{
 				resp, err := httpClient.Get(fullURL)
 				if err == nil {
 					if resp.StatusCode >= 200 && resp.StatusCode < 500 {
-						externalStatus = color.GreenString("PASS (%d)", resp.StatusCode)
+						externalStatus = color.GreenString("通过（%d）", resp.StatusCode)
 					} else {
-						externalStatus = color.RedString("FAIL (%d)", resp.StatusCode)
-						failureDetails = append(failureDetails, fmt.Sprintf("- %s external check failed (%s): unexpected status %d", site.Name, fullURL, resp.StatusCode))
+						externalStatus = color.RedString("失败（%d）", resp.StatusCode)
+						failureDetails = append(failureDetails, fmt.Sprintf("- %s 外部检测失败（%s）：返回了异常状态码 %d", site.Name, fullURL, resp.StatusCode))
 					}
 					resp.Body.Close()
 				} else {
-					externalStatus = color.RedString("FAIL (Unreachable)")
-					failureDetails = append(failureDetails, fmt.Sprintf("- %s external check failed (%s): %s", site.Name, fullURL, formatCheckError(err)))
+					externalStatus = color.RedString("失败（不可达）")
+					failureDetails = append(failureDetails, fmt.Sprintf("- %s 外部检测失败（%s）：%s", site.Name, fullURL, formatCheckError(err)))
 				}
 			} else {
-				externalStatus = color.YellowString("? (No Domain)")
+				externalStatus = color.YellowString("未配置域名")
 			}
 
 			fmt.Printf("%-20s | %-30s | %-20s | %-25s\n",
@@ -166,7 +166,7 @@ var testCmd = &cobra.Command{
 
 		if len(failureDetails) > 0 {
 			fmt.Println("")
-			color.Yellow("Failure details:")
+			color.Yellow("失败详情：")
 			for _, detail := range failureDetails {
 				fmt.Println(detail)
 			}
