@@ -40,7 +40,7 @@ DEFAULTS = {
     "TARGET_OS": "linux",
     "TARGET_ARCH": "amd64",
     "EXECUTABLE_NAME": "swag-cli",
-    'REMOTE_HOST': 'deali.cn',
+    'REMOTE_HOST': 'deali.sg',
     'REMOTE_TEMP_PATH': '/tmp',
     'REMOTE_INSTALL_PATH': '/usr/local/bin',
     "ENABLED_DEPLOY": True,
